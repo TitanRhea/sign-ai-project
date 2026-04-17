@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignAI | Αναγνώριση Νοηματικής</title>
+    <style>
+        body { margin: 0; background-color: #f0e6dc; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        #nav-bar { width: 100%; background: rgba(51, 51, 51, 0.9); padding: 15px 0; display: flex; justify-content: center; gap: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); position: absolute; top: 0; left: 0; z-index: 100; }
+        .nav-button { color: white; text-decoration: none; font-weight: bold; padding: 8px 20px; border-radius: 20px; background: #555; transition: 0.3s; }
+        .nav-button:hover { background: #777; }
+        .active { background: #4CAF50; }
+        h1 { color: #333; margin: 80px 0 20px 0; }
+        #video-container { width: 640px; max-width: 90%; border-radius: 15px; overflow: hidden; border: 5px solid white; box-shadow: 0 10px 30px rgba(0,0,0,0.2); background: black; position: relative; }
+        #input_video { width: 100%; height: auto; transform: scaleX(-1); display: block; }
+        #ui-container { margin-top: 30px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        #subtitle { font-size: 32px; color: #333; background: white; padding: 20px 40px; border-radius: 30px; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.1); min-width: 300px; }
+        #voice-select { font-size: 16px; padding: 10px 20px; border-radius: 10px; border: 2px solid #ddd; background: white; cursor: pointer; font-weight: bold; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        #connection-status { position: absolute; top: 80px; left: 20px; padding: 10px 20px; border-radius: 50px; font-weight: bold; font-size: 14px; transition: background-color 0.5s ease; }
+        .online { background: #4CAF50; color: white; }
+        .offline { background: #f44336; color: white; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div id="nav-bar">
+        <a href="index.html" class="nav-button active">Αναγνώριση (Κάμερα)</a>
+        <a href="avatar.html" class="nav-button">Αβατάρ (Μετάφραση)</a>
+    </div>
+    <div id="connection-status" class="offline">Εγκέφαλος: Εκκίνηση (Περιμένετε ~50 δευτ.)</div>
+    <h1>SignAI: Αναγνώριση Νοηματικής</h1>
+    <div id="video-container"><video id="input_video" autoplay playsinline></video></div>
+    <div id="ui-container">
+        <div id="subtitle">Περιμένω κίνηση...</div>
+        <select id="voice-select">
+            <option value="female">Γυναικεία Φωνή</option>
+            <option value="male">Ανδρική Φωνή</option>
+        </select>
+    </div>
+    <script>
+        const socket = io("https://sign-ai-server.onrender.com");
+        socket.on('connect', () => {
+            document.getElementById("connection-status").innerText = "Εγκέφαλος AI: Συνδεδεμένος";
+            document.getElementById("connection-status").className = "online";
+        });
+
+        const translations = { 'efharisto': 'Ευχαριστώ', 'kalimera': 'Καλημέρα', 'kalo_mesimeri': 'Καλό μεσημέρι', 'geia': 'Γεια', 'onoma': 'Ποιο είναι το όνομά σου;' };
+        const audioFiles = {
+            'efharisto': { female: 'efharisto.female.wav', male: 'efharisto.male.wav' },
+            'kalimera': { female: 'kalimera.female.wav', male: 'kalimera.male.wav' },
+            'kalo_mesimeri': { female: 'kalo_mesimeri.female.wav', male: 'kalo_mesimeri.male.wav' },
+            'geia': { female: 'geia.female.wav', male: 'geia.male.wav' },
+            'onoma': { female: 'poio.einai.to.onoma.sou.female.wav', male: 'poio.einai.to.onoma.sou.male.wav' }
+        };
+
+        let is_speaking = false;
+
+        socket.on('new_sign', (data) => {
+            if (is_speaking) return;
+            const raw_word = data.word;
+            const greek_word = translations[raw_word] || raw_word;
+            document.getElementById("subtitle").innerText = greek_word;
+            playCustomAudio(raw_word);
+        });
+
+        function playCustomAudio(wordCode) {
+            is_speaking = true;
+            const selectedVoice = document.getElementById('voice-select').value;
+            if (audioFiles[wordCode] && audioFiles[wordCode][selectedVoice]) {
+                const fileName = audioFiles[wordCode][selectedVoice];
+                const audio = new Audio(fileName);
+                audio.play().catch(e => console.log("Πρόβλημα ήχου:", e));
+                audio.onended = function() {
+                    setTimeout(() => { is_speaking = false; document.getElementById("subtitle").innerText = "Περιμένω κίνηση..."; }, 1000);
+                };
+            } else {
+                setTimeout(() => { is_speaking = false; document.getElementById("subtitle").innerText = "Περιμένω κίνηση..."; }, 2000);
+            }
+        }
+
+        const videoElement = document.getElementById('input_video');
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+
+        let lastEmitTime = 0;
+        hands.onResults((results) => {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const now = Date.now();
+                if (now - lastEmitTime > 150 && !is_speaking) { 
+                    const landmarks = results.multiHandLandmarks[0].map(lm => ({ x: lm.x, y: lm.y, z: lm.z }));
+                    socket.emit('process_landmarks', { landmarks: landmarks });
+                    lastEmitTime = now;
+                }
+            }
+        });
+        const camera_mp = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, width: 640, height: 480 });
+        camera_mp.start();
+    </script>
+</body>
+</html>
