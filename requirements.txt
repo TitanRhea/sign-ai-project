@@ -1,5 +1,5 @@
 flask
 flask-socketio
-numpy==1.24.3
+numpy
 scikit-learn
 gunicorn
