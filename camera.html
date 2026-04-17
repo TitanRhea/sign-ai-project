@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignAI | Final Integration</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f0e6dc; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+        #ui-layer { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); text-align: center; width: 100%; }
+        #subtitle { font-size: 22px; color: #333; background: rgba(255, 255, 255, 0.95); padding: 12px 25px; border-radius: 20px; display: inline-block; margin-bottom: 15px; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.1); min-width: 380px; }
+        #connection-status { position: absolute; top: 20px; right: 20px; padding: 10px 20px; border-radius: 50px; font-weight: bold; }
+        .online { background: #4CAF50; color: white; }
+        .offline { background: #f44336; color: white; }
+    </style>
+</head>
+<body>
+
+    <div id="connection-status" class="offline">Python Server: Offline</div>
+    <div id="canvas-container"></div>
+    <div id="ui-layer"><div id="subtitle">Περιμονή για σύνδεση...</div></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+
+    <script>
+        // --- ΡΥΘΜΙΣΕΙΣ THREE.JS ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0e6dc);
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 1.8, 4.5);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1.5, 0);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const light = new THREE.DirectionalLight(0xffffff, 0.6);
+        light.position.set(5, 10, 5); scene.add(light);
+
+        let currentModel = null, bones = {}, is_busy = false, isTitan = false;
+        const deg = (d) => d * (Math.PI / 180);
+        const basePose = { x: 54, y: 30, z: 17 };
+        let gestureQueue = [];
+
+        // --- ΦΟΡΤΩΣΗ AVATAR ---
+        const loader = new THREE.GLTFLoader();
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/');
+        loader.setDRACOLoader(dracoLoader);
+
+        function loadAvatar(file) {
+            isTitan = file.includes('titan');
+            loader.load(file, (gltf) => {
+                if (currentModel) scene.remove(currentModel);
+                currentModel = gltf.scene;
+                currentModel.position.set(0, 0.6, 0);
+                scene.add(currentModel);
+                currentModel.traverse(n => {
+                    if (n.isBone) {
+                        const bName = n.name.toLowerCase();
+                        if (bName.includes('jaw')) bones.jaw = n;
+                        if (bName.includes('rightarm')) bones.r_shoulder = n;
+                        if (bName.includes('rightforearm')) bones.r_elbow = n;
+                        if (bName.includes('righthand')) bones.r_wrist = n;
+                        if (bName.includes('leftarm')) bones.l_shoulder = n;
+                        if (bName.includes('leftforearm')) bones.l_elbow = n;
+                        if (bName.includes('lefthand')) bones.l_wrist = n;
+                        const match = bName.match(/(thumb|index|middle|ring|pinky)(\d)/);
+                        if (match) {
+                            if (bName.includes('right')) { bones.r_joints[match[0]] = n; bones.r_fingers.push(n); }
+                            else { bones.l_joints[match[0]] = n; bones.l_fingers.push(n); }
+                        }
+                    }
+                });
+                resetPose(0.1);
+            });
+        }
+
+        // --- ΣΥΝΔΕΣΗ SOCKET.IO (Η ΓΕΦΥΡΑ) ---
+        const socket = io("http://localhost:5000");
+        socket.on('connect', () => {
+            document.getElementById("connection-status").innerText = "Python Server: Online";
+            document.getElementById("connection-status").className = "online";
+            document.getElementById("subtitle").innerText = "Ακούω τις κινήσεις σου...";
+        });
+
+        socket.on('new_sign', (data) => {
+            const word = data.word; // 'geia', 'kalimera' κλπ
+            enqueueGesture(word);
+        });
+
+        function enqueueGesture(g) {
+            gestureQueue.push(g);
+            if (!is_busy) processQueue();
+        }
+
+        function processQueue() {
+            if (is_busy || gestureQueue.length === 0) return;
+            is_busy = true;
+            let g = gestureQueue.shift();
+            
+            // Κάλεσε τις δικές σου συναρτήσεις κίνησης
+            if (g === 'efharisto') gesture_efcharisto();
+            else if (g === 'kalimera') gesture_kalimera();
+            else if (g === 'kalo_mesimeri') gesture_mesimeri();
+            else if (g === 'geia') gesture_geia();
+            else if (g === 'onoma') gesture_onoma();
+            else is_busy = false;
+        }
+
+        // --- (ΕΔΩ ΜΠΑΙΝΟΥΝ ΟΙ ΔΙΚΕΣ ΣΟΥ GESTURE_ ΣΥΝΑΡΤΗΣΕΙΣ ΠΟΥ ΜΟΥ ΕΣΤΕΙΛΕΣ) ---
+        function resetPose(s=0.5) { /* ο κώδικάς σου */ }
+        function gesture_geia() { /* ο κώδικάς σου */ setTimeout(finalize_gesture, 2000); }
+        function finalize_gesture() { is_busy = false; processQueue(); }
+
+        loadAvatar('updated_model.glb');
+        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+        animate();
+    </script>
+</body>
+</html>
