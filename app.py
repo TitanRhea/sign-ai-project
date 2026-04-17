@@ -8,9 +8,17 @@ from flask_socketio import SocketIO
 import threading
 import os
 
-# ΕΙΔΙΚΗ ΔΙΟΡΘΩΣΗ ΓΙΑ RENDER (Mediapipe Linux Fix)
-from mediapipe.python.solutions import hands as mp_hands
-from mediapipe.python.solutions import drawing_utils as mp_draw
+# Προσπάθεια εισαγωγής Mediapipe με εναλλακτικούς τρόπους για αποφυγή σφαλμάτων στο Cloud
+try:
+    mp_hands = mp.solutions.hands
+    mp_draw = mp.solutions.drawing_utils
+except AttributeError:
+    try:
+        from mediapipe.python.solutions import hands as mp_hands
+        from mediapipe.python.solutions import drawing_utils as mp_draw
+    except ImportError:
+        import mediapipe.solutions.hands as mp_hands
+        import mediapipe.solutions.drawing_utils as mp_draw
 
 # Ρυθμίσεις Flask & SocketIO
 app = Flask(__name__)
@@ -25,27 +33,26 @@ except FileNotFoundError:
     exit()
 
 # Ρυθμίσεις Mediapipe
-hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
+hands = mp_hands.Hands(static_image_mode=False, min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
-# Ρυθμίσεις Αναγνώρισης (3 Frames / 50%)
+# Ρυθμίσεις Αναγνώρισης
 REQUIRED_FRAMES = 3
 CONFIDENCE_THRESHOLD = 0.50
 
 def recognition_logic():
-    # Στο Render/Cloud δεν έχουμε πραγματική κάμερα, αλλά ο κώδικας 
-    # πρέπει να τρέχει χωρίς να κρασάρει αν δεν βρει συσκευή.
+    # Στο Render/Cloud χρησιμοποιούμε ένα loop που δεν κρασάρει αν δεν βρει κάμερα
     cap = cv2.VideoCapture(0)
     current_candidate = None
     consecutive_frames = 0
     last_spoken_word = None
     last_spoken_time = 0
 
-    print("🚀 SignAI Server: Started")
+    print("🚀 SignAI Server: Active and Scanning")
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            time.sleep(1) # Περιμένει αν δεν υπάρχει κάμερα
+            time.sleep(1) 
             continue
             
         frame = cv2.flip(frame, 1)
@@ -72,7 +79,6 @@ def recognition_logic():
             active_now = model.classes_[best_class_index]
             prediction_prob = probabilities[best_class_index]
 
-            # Δικλείδα για Καλό Μεσημέρι
             is_hand_vertical = middle_finger_tip.y < wrist.y - 0.1
             is_hand_at_chin = wrist.y < 0.65
             if active_now == "efharisto" and is_hand_at_chin and is_hand_vertical:
@@ -91,7 +97,6 @@ def recognition_logic():
             
             if consecutive_frames >= REQUIRED_FRAMES and current_candidate not in ['background', 'noise']:
                 if current_candidate != last_spoken_word or (time.time() - last_spoken_time > 2.0):
-                    print(f"📡 Emission: {current_candidate}")
                     socketio.emit('new_sign', {'word': current_candidate})
                     last_spoken_word = current_candidate
                     last_spoken_time = time.time()
@@ -107,6 +112,6 @@ def index():
     return "SignAI Server is LIVE"
 
 if __name__ == '__main__':
-    # ΔΙΟΡΘΩΣΗ ΠΟΡΤΑΣ ΓΙΑ ΤΟ RENDER
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))
+    # Χρήση eventlet ή gevent αν είναι διαθέσιμα, αλλιώς standard
     socketio.run(app, host='0.0.0.0', port=port)
