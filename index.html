@@ -25,20 +25,13 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
-
     <div id="nav-bar">
         <a href="index.html" class="nav-button active">Αναγνώριση (Κάμερα)</a>
         <a href="avatar.html" class="nav-button">Αβατάρ (Μετάφραση)</a>
     </div>
-
     <div id="connection-status" class="offline">Εγκέφαλος: Εκκίνηση (Περιμένετε ~50 δευτ.)</div>
-    
     <h1>SignAI: Αναγνώριση Νοηματικής</h1>
-    
-    <div id="video-container">
-        <video id="input_video" autoplay playsinline></video>
-    </div>
-    
+    <div id="video-container"><video id="input_video" autoplay playsinline></video></div>
     <div id="ui-container">
         <div id="subtitle">Περιμένω κίνηση...</div>
         <select id="voice-select">
@@ -46,23 +39,14 @@
             <option value="male">Ανδρική Φωνή</option>
         </select>
     </div>
-
     <script>
         const socket = io("https://sign-ai-server.onrender.com");
-        
         socket.on('connect', () => {
             document.getElementById("connection-status").innerText = "Εγκέφαλος AI: Συνδεδεμένος";
             document.getElementById("connection-status").className = "online";
         });
 
-        const translations = {
-            'efharisto': 'Ευχαριστώ',
-            'kalimera': 'Καλημέρα',
-            'kalo_mesimeri': 'Καλό μεσημέρι',
-            'geia': 'Γεια',
-            'onoma': 'Ποιο είναι το όνομά σου;'
-        };
-
+        const translations = { 'efharisto': 'Ευχαριστώ', 'kalimera': 'Καλημέρα', 'kalo_mesimeri': 'Καλό μεσημέρι', 'geia': 'Γεια', 'onoma': 'Ποιο είναι το όνομά σου;' };
         const audioFiles = {
             'efharisto': { female: 'efharisto.female.wav', male: 'efharisto.male.wav' },
             'kalimera': { female: 'kalimera.female.wav', male: 'kalimera.male.wav' },
@@ -75,10 +59,8 @@
 
         socket.on('new_sign', (data) => {
             if (is_speaking) return;
-
             const raw_word = data.word;
             const greek_word = translations[raw_word] || raw_word;
-
             document.getElementById("subtitle").innerText = greek_word;
             playCustomAudio(raw_word);
         });
@@ -86,63 +68,37 @@
         function playCustomAudio(wordCode) {
             is_speaking = true;
             const selectedVoice = document.getElementById('voice-select').value;
-            
             if (audioFiles[wordCode] && audioFiles[wordCode][selectedVoice]) {
                 const fileName = audioFiles[wordCode][selectedVoice];
                 const audio = new Audio(fileName);
-                
                 audio.play().catch(e => console.log("Πρόβλημα ήχου:", e));
                 
+                // ΤΕΡΑΣΤΙΑ ΑΥΞΗΣΗ ΤΑΧΥΤΗΤΑΣ ΕΔΩ
                 audio.onended = function() {
-                    // ΜΕΙΩΣΑΜΕ ΤΟΝ ΧΡΟΝΟ ΑΝΑΜΟΝΗΣ ΣΤΑ 100ms
-                    setTimeout(() => {
-                        is_speaking = false;
-                        document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                    }, 100); 
+                    setTimeout(() => { is_speaking = false; document.getElementById("subtitle").innerText = "Περιμένω κίνηση..."; }, 10);
                 };
             } else {
-                // ΜΕΙΩΣΑΜΕ ΤΟΝ ΧΡΟΝΟ ΑΝΑΜΟΝΗΣ ΣΤΑ 300ms
-                setTimeout(() => {
-                    is_speaking = false;
-                    document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                }, 300);
+                setTimeout(() => { is_speaking = false; document.getElementById("subtitle").innerText = "Περιμένω κίνηση..."; }, 100);
             }
         }
 
         const videoElement = document.getElementById('input_video');
-        const hands = new Hands({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }});
-        
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-        });
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
 
         let lastEmitTime = 0;
         hands.onResults((results) => {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const now = Date.now();
-                if (now - lastEmitTime > 80 && !is_speaking) { 
-                    const landmarks = results.multiHandLandmarks[0].map(lm => ({ 
-                        x: 1.0 - lm.x, 
-                        y: lm.y, 
-                        z: lm.z 
-                    }));
+                // ΑΠΟΣΤΟΛΗ ΔΕΔΟΜΕΝΩΝ ΚΑΘΕ 40ms (25 fps)
+                if (now - lastEmitTime > 40 && !is_speaking) { 
+                    const landmarks = results.multiHandLandmarks[0].map(lm => ({ x: 1.0 - lm.x, y: lm.y, z: lm.z }));
                     socket.emit('process_landmarks', { landmarks: landmarks });
                     lastEmitTime = now;
                 }
             }
         });
-
-        const camera_mp = new Camera(videoElement, {
-            onFrame: async () => { await hands.send({image: videoElement}); },
-            width: 640,
-            height: 480
-        });
-        
+        const camera_mp = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, width: 640, height: 480 });
         camera_mp.start();
     </script>
 </body>
