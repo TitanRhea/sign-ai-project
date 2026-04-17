@@ -94,16 +94,18 @@
                 audio.play().catch(e => console.log("Πρόβλημα ήχου:", e));
                 
                 audio.onended = function() {
+                    // ΜΕΙΩΣΑΜΕ ΤΟΝ ΧΡΟΝΟ ΑΝΑΜΟΝΗΣ ΣΤΑ 100ms
                     setTimeout(() => {
                         is_speaking = false;
                         document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                    }, 1000); 
+                    }, 100); 
                 };
             } else {
+                // ΜΕΙΩΣΑΜΕ ΤΟΝ ΧΡΟΝΟ ΑΝΑΜΟΝΗΣ ΣΤΑ 300ms
                 setTimeout(() => {
                     is_speaking = false;
                     document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                }, 2000);
+                }, 300);
             }
         }
 
@@ -123,16 +125,12 @@
         hands.onResults((results) => {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const now = Date.now();
-                // Μειώσαμε τον χρόνο στα 80ms για να είναι γρήγορο όπως η Python
                 if (now - lastEmitTime > 80 && !is_speaking) { 
-                    
-                    // ΕΔΩ ΕΙΝΑΙ Η ΛΥΣΗ: Το 1.0 - lm.x κάνει καθρέφτη στα δεδομένα!
                     const landmarks = results.multiHandLandmarks[0].map(lm => ({ 
                         x: 1.0 - lm.x, 
                         y: lm.y, 
                         z: lm.z 
                     }));
-                    
                     socket.emit('process_landmarks', { landmarks: landmarks });
                     lastEmitTime = now;
                 }
