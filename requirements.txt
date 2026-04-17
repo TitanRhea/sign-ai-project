@@ -2,5 +2,7 @@ flask
 flask-socketio
 mediapipe
 opencv-python-headless
-numpy
+numpy==1.24.3
 scikit-learn
+eventlet
+gunicorn
