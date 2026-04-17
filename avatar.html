@@ -90,12 +90,11 @@
         loader.setDRACOLoader(dracoLoader);
 
         function loadAvatar(file) {
-            const finalPath = file + "?v=" + Date.now();
             isTitan = file.includes('titan'); 
             if (currentModel) scene.remove(currentModel);
             bones = { r_fingers: [], l_fingers: [], r_joints: {}, l_joints: {} }; 
             
-            loader.load(finalPath, (gltf) => {
+            loader.load(file, (gltf) => {
                 currentModel = gltf.scene;
                 currentModel.position.set(0, 0.6, 0); 
                 currentModel.scale.set(1.1, 1.1, 1.1); 
@@ -128,6 +127,8 @@
                         document.getElementById('subtitle').innerText = avatarName + ": Σύστημα Έτοιμο!";
                     }
                 }, 400);
+            }, undefined, function (error) {
+                console.error("Σφάλμα φόρτωσης μοντέλου:", error);
             });
         }
 
@@ -392,7 +393,9 @@
             }
         };
 
+        // ΦΟΡΤΩΝΕΙ ΤΗΝ RHEA ΟΤΑΝ ΑΝΟΙΓΕΙ Η ΣΕΛΙΔΑ
         loadAvatar('updated_model.glb');
+        
         function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
         animate();
         window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
