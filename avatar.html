@@ -27,7 +27,7 @@
     </div>
     <div id="canvas-container"></div>
     <div id="ui-layer">
-        <div id="subtitle">Μικρόφωνο Κλειστό</div><br>
+        <div id="subtitle">Εκκίνηση 3D Μοντέλου...</div><br>
         <div class="controls">
             <select id="avatar-select" onchange="loadAvatar(this.value)">
                 <option value="updated_model.glb">Avatar: Rhea (Νέο Μοντέλο)</option>
@@ -90,11 +90,17 @@
         loader.setDRACOLoader(dracoLoader);
 
         function loadAvatar(file) {
+            document.getElementById('subtitle').innerText = "Φόρτωση αρχείου: " + file + " ...";
+            document.getElementById('subtitle').style.color = "#333";
+            
             isTitan = file.includes('titan'); 
             if (currentModel) scene.remove(currentModel);
             bones = { r_fingers: [], l_fingers: [], r_joints: {}, l_joints: {} }; 
             
-            loader.load(file, (gltf) => {
+            // Βάλαμε cache-busting για να μην κολλάει το GitHub
+            const finalPath = file + "?v=" + Date.now();
+
+            loader.load(finalPath, (gltf) => {
                 currentModel = gltf.scene;
                 currentModel.position.set(0, 0.6, 0); 
                 currentModel.scale.set(1.1, 1.1, 1.1); 
@@ -124,11 +130,14 @@
                     if (bones.jaw) bones.jaw.rotation.x = deg(90);
                     if(bones.r_shoulder) {
                         let avatarName = isTitan ? 'Titan' : 'Rhea';
-                        document.getElementById('subtitle').innerText = avatarName + ": Σύστημα Έτοιμο!";
+                        document.getElementById('subtitle').innerText = avatarName + ": Σύστημα Έτοιμο! Μικρόφωνο Κλειστό.";
                     }
                 }, 400);
             }, undefined, function (error) {
-                console.error("Σφάλμα φόρτωσης μοντέλου:", error);
+                // ΑΝ ΔΕΝ ΤΟ ΒΡΕΙ, ΘΑ ΣΤΟ ΓΡΑΨΕΙ ΕΔΩ
+                console.error(error);
+                document.getElementById('subtitle').innerText = "❌ ΣΦΑΛΜΑ: Το αρχείο " + file + " δεν βρέθηκε στο GitHub!";
+                document.getElementById('subtitle').style.color = "red";
             });
         }
 
@@ -340,65 +349,4 @@
             }, 600);
         }
 
-        function gesture_geia() {
-            is_busy = true; clearFingers(); 
-            if(bones.jaw) {
-                gsap.timeline()
-                     .to(bones.jaw.rotation, { x: deg(98), duration: 0.25, ease: "sine.inOut" }) 
-                     .to(bones.jaw.rotation, { x: deg(115), duration: 0.35, ease: "sine.inOut" }) 
-                     .to(bones.jaw.rotation, { x: deg(90), duration: 0.2, ease: "sine.inOut" }); 
-            }
-            if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(11), y: deg(18), z: deg(4), duration: 0.5 });
-            if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(-10), y: deg(35), z: deg(-128), duration: 0.5 });
-            setTimeout(() => {
-                if(bones.r_wrist) {
-                    gsap.timeline({ repeat: 4, onComplete: finalize_gesture })
-                        .to(bones.r_wrist.rotation, { z: deg(25), duration: 0.25 })
-                        .to(bones.r_wrist.rotation, { z: deg(-25), duration: 0.25 });
-                } else { finalize_gesture(); }
-            }, 600);
-        }
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const micBtn = document.getElementById('mic-btn');
-        const subtitle = document.getElementById('subtitle');
-        let recognition = null, isListening = false;
-
-        if (SpeechRecognition) {
-            recognition = new SpeechRecognition();
-            recognition.lang = 'el-GR';
-            recognition.continuous = false; 
-            recognition.interimResults = false;
-            recognition.onresult = (event) => {
-                const text = event.results[0][0].transcript.toLowerCase().trim();
-                displayBuffer += (displayBuffer === "" ? "" : " ") + text;
-                subtitle.innerText = "Είπες: " + displayBuffer;
-                const keywords = { 'efcharisto': ["ευχαριστώ", "ευχαριστω"], 'kalimera': ["καλημέρα", "καλημερα"], 'mesimeri': ["μεσημέρι", "μεσημερι", "καλό μεσημέρι", "καλο μεσημερι"], 'geia': ["γεια", "γειά", "χαίρετε"], 'onoma': ["όνομά", "όνομα", "ονομα", "ποιο είναι", "ποιο ειναι"] };
-                Object.entries(keywords).forEach(([gesture, words]) => { if (words.some(w => text.includes(w))) enqueueGesture(gesture); });
-            };
-            recognition.onend = () => { if (isListening) setTimeout(() => { try { recognition.start(); } catch(e) {} }, 10); };
-            recognition.onerror = () => { if(isListening) recognition.stop(); };
-        }
-
-        micBtn.onclick = () => {
-            if (!isListening) {
-                isListening = true; displayBuffer = "";
-                try { recognition.start(); } catch(e) {}
-                micBtn.innerText = "🛑 Κλείσιμο"; micBtn.classList.add('listening');
-                subtitle.innerText = "Ακούω..."; 
-            } else {
-                isListening = false; recognition.stop();
-                micBtn.innerText = "🎙️ Ενεργοποίηση"; micBtn.classList.remove('listening');
-                subtitle.innerText = "Μικρόφωνο Κλειστό";
-            }
-        };
-
-        // ΦΟΡΤΩΝΕΙ ΤΗΝ RHEA ΟΤΑΝ ΑΝΟΙΓΕΙ Η ΣΕΛΙΔΑ
-        loadAvatar('updated_model.glb');
-        
-        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
-        animate();
-        window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-    </script>
-</body>
-</html>
+        function gesture
