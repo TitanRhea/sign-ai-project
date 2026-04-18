@@ -20,8 +20,8 @@ except FileNotFoundError:
 # --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
 current_candidate = None
 consecutive_frames = 0
-REQUIRED_FRAMES = 2          # 2 frames για να είναι γρήγορο
-CONFIDENCE_THRESHOLD = 0.40  # Χαμηλό όριο για να "πιάνει" εύκολα
+REQUIRED_FRAMES = 2          
+CONFIDENCE_THRESHOLD = 0.40  
 last_spoken_word = None
 last_spoken_time = 0
 
@@ -52,7 +52,7 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # --- Η ΑΠΟΛΥΤΗ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ ---
+    # --- Η ΣΩΣΤΗ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (ΚΑΘΕΤΟ ΧΕΡΙ) ---
     wrist = raw_landmarks[0]
     middle_tip = raw_landmarks[12]
     
@@ -60,15 +60,16 @@ def handle_landmarks(data):
     dx = abs(middle_tip['x'] - wrist['x'])
     dy = abs(middle_tip['y'] - wrist['y'])
     
-    is_hand_horizontal = dx > dy # Αν το πλάτος είναι μεγαλύτερο, το χέρι είναι ξαπλωμένο
-    is_in_chin_area = wrist['y'] > 0.45 # Το 0.0 είναι η κορυφή, το 1.0 ο πάτος. Άρα > 0.45 είναι από τη μέση και κάτω.
+    # ΤΩΡΑ ΕΙΝΑΙ ΣΩΣΤΟ: Αν το ύψος (dy) είναι μεγαλύτερο από το πλάτος (dx), το χέρι είναι ΚΑΘΕΤΟ!
+    is_hand_vertical = dy > dx 
+    is_in_chin_area = wrist['y'] < 0.85 # Αρκετά χαλαρό όριο για να το πιάνει παντού
     
-    # Αδιαφορούμε για το AI. Αν το χέρι είναι οριζόντιο στο ύψος του λαιμού/πηγουνιού, είναι Καλό Μεσημέρι.
-    if is_hand_horizontal and is_in_chin_area:
+    # Αν το AI νομίζει ότι είναι 'ευχαριστώ', αλλά εμείς βλέπουμε ΚΑΘΕΤΟ χέρι, είναι Καλό Μεσημέρι!
+    if active_now == "efharisto" and is_in_chin_area and is_hand_vertical:
         active_now = "kalo_mesimeri"
         prediction_prob = 0.99
 
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ & ΚΑΛΗΜΕΡΑ (Συγχωρεί λάθη)
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ & ΚΑΛΗΜΕΡΑ
     if prediction_prob < CONFIDENCE_THRESHOLD:
         if active_now in ["geia", "kalimera"] and prediction_prob >= 0.30:
             pass
