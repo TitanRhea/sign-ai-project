@@ -59,14 +59,14 @@ def handle_landmarks(data):
     ring_tip_y = raw_landmarks[16]['y']      # Παράμεσος
     pinky_tip_y = raw_landmarks[20]['y']     # Μικρό δαχτυλάκι
     
-    # Ελέγχουμε ότι ΟΛΑ τα δάχτυλα της παλάμης είναι προς τα πάνω σε σχέση με τον καρπό
+    # Ελέγχουμε ότι ΟΛΑ τα δάχτυλα της παλάμης είναι προς τα πάνω
     is_hand_vertical = (
         index_tip_y < wrist_y - 0.05 and
         middle_tip_y < wrist_y - 0.05 and
         ring_tip_y < wrist_y - 0.05 and
         pinky_tip_y < wrist_y - 0.05
     )
-    is_hand_at_chin = wrist_y < 0.75 
+    is_hand_at_chin = wrist_y < 0.75
     
     if active_now == "efharisto" and is_hand_at_chin and is_hand_vertical:
         active_now = "kalo_mesimeri"
