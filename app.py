@@ -17,13 +17,16 @@ except FileNotFoundError:
     print("❌ Σφάλμα: Δεν βρέθηκε το sign_model.pkl!")
     model = None
 
-# --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
+# --- 2. ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
 current_candidate = None
 consecutive_frames = 0
 REQUIRED_FRAMES = 2          
 CONFIDENCE_THRESHOLD = 0.40  
 last_spoken_word = None
 last_spoken_time = 0
+
+# ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗ ΔΙΑΔΡΟΜΗ ΤΗΣ ΟΛΓΑΣ
+waiting_at_side = False # Έχει πάει το χέρι στο πλάι;
 
 @app.route('/')
 def index():
@@ -32,6 +35,7 @@ def index():
 @socketio.on('process_landmarks')
 def handle_landmarks(data):
     global current_candidate, consecutive_frames, last_spoken_word, last_spoken_time
+    global waiting_at_side
     
     if model is None: return
     
@@ -42,7 +46,6 @@ def handle_landmarks(data):
     row = []
     base_x = raw_landmarks[0]['x']
     base_y = raw_landmarks[0]['y']
-    
     for lm in raw_landmarks: row.append(lm['x'] - base_x)
     for lm in raw_landmarks: row.append(lm['y'] - base_y)
 
@@ -52,35 +55,51 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # =========================================================
-    # --- Η ΑΠΟΛΥΤΗ ΓΕΩΜΕΤΡΙΚΗ ΛΟΓΙΚΗ (Geofencing) ---
-    # =========================================================
+    # --- ΓΕΩΜΕΤΡΙΚΟΣ ΕΛΕΓΧΟΣ ---
     wrist_x = raw_landmarks[0]['x']
+    wrist_y = raw_landmarks[0]['y']
+    middle_tip = raw_landmarks[12]
     
-    # 1. Είναι ο Δείκτης σηκωμένος; (Η άκρη του (8) πιο ψηλά από την κλείδωσή του (6))
-    index_up = raw_landmarks[8]['y'] < raw_landmarks[6]['y']
+    # Έλεγχος Δείκτη
+    is_index_up = raw_landmarks[8]['y'] < (raw_landmarks[12]['y'] - 0.08)
     
-    # 2. Είναι το χέρι στο πλάι; (Απέχει από το κέντρο της οθόνης)
-    is_side = abs(wrist_x - 0.5) > 0.15 
+    # Έλεγχος Θέσης
+    is_side = abs(wrist_x - 0.5) > 0.18  # Πολύ καθαρά στο πλάι
+    is_center = abs(wrist_x - 0.5) < 0.15 # Στο κέντρο (μπροστά από το πρόσωπο)
+    is_high = wrist_y < 0.75             # Ύψος ώμου και πάνω
+    is_chin_level = 0.4 < wrist_y < 0.7   # Ακριβώς στο ύψος του πηγουνιού
     
-    # Αν το AI προβλέψει μία από τις 3 "προβληματικές" λέξεις, παίρνουμε τον έλεγχο:
-    if active_now in ["efharisto", "kalimera", "kalo_mesimeri"]:
-        if not is_side:
-            # Αν το χέρι είναι στο ΚΕΝΤΡΟ (Στέρνο), είναι 100% ΕΥΧΑΡΙΣΤΩ
-            active_now = "efharisto"
-            prediction_prob = 0.99
-        else:
-            # Αν το χέρι είναι στο ΠΛΑΙ (πρόσωπο/ώμος)...
-            if index_up:
-                # ...και έχει δείκτη όρθιο = ΚΑΛΗΜΕΡΑ
-                active_now = "kalimera"
-                prediction_prob = 0.99
-            else:
-                # ...και ΔΕΝ έχει δείκτη όρθιο = ΚΑΛΟ ΜΕΣΗΜΕΡΙ
-                active_now = "kalo_mesimeri"
-                prediction_prob = 0.99
+    # Έλεγχος αν η παλάμη είναι οριζόντια (για το πηγούνι)
+    dx = abs(middle_tip['x'] - raw_landmarks[0]['x'])
+    dy = abs(middle_tip['y'] - raw_landmarks[0]['y'])
+    is_horizontal = dx > dy
 
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ (Παραμένει άθικτος)
+    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΔΙΑΔΡΟΜΗΣ ---
+    
+    if is_high and is_side:
+        # ΒΗΜΑ 1: Το χέρι είναι στο πλάι. Περιμένουμε...
+        waiting_at_side = True
+        
+        if is_index_up:
+            # Αν όσο είναι στο πλάι σηκωθεί ο δείκτης -> ΚΑΛΗΜΕΡΑ
+            active_now = "kalimera"
+            prediction_prob = 0.99
+            waiting_at_side = False # Η διαδρομή ολοκληρώθηκε
+        else:
+            # Είναι στο πλάι αλλά γροθιά. Μην λες τίποτα ακόμα.
+            active_now = "noise"
+            
+    elif waiting_at_side and is_center and is_chin_level and is_horizontal:
+        # ΒΗΜΑ 2: Το χέρι ήταν στο πλάι και ΤΩΡΑ ήρθε στο πηγούνι οριζόντια -> ΚΑΛΟ ΜΕΣΗΜΕΡΙ
+        active_now = "kalo_mesimeri"
+        prediction_prob = 0.99
+        waiting_at_side = False # Η διαδρομή ολοκληρώθηκε
+        
+    elif not is_high:
+        # Αν το χέρι πέσει κάτω, μηδενίζουμε τη διαδρομή
+        waiting_at_side = False
+
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ (Κλειδωμένος)
     if active_now not in ["efharisto", "kalimera", "kalo_mesimeri"]:
         if prediction_prob < CONFIDENCE_THRESHOLD:
             if active_now == "geia" and prediction_prob >= 0.30:
