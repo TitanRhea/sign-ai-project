@@ -17,11 +17,11 @@ except FileNotFoundError:
     print("❌ Σφάλμα: Δεν βρέθηκε το sign_model.pkl!")
     model = None
 
-# --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (Από την Python) ---
+# --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (ΠΙΟ ΓΡΗΓΟΡΟΣ ΚΑΙ ΧΑΛΑΡΟΣ) ---
 current_candidate = None
 consecutive_frames = 0
-REQUIRED_FRAMES = 3 
-CONFIDENCE_THRESHOLD = 0.50 
+REQUIRED_FRAMES = 2          # ΑΛΛΑΓΗ 1: Μόνο 2 frames για αστραπιαία αναγνώριση
+CONFIDENCE_THRESHOLD = 0.40  # ΑΛΛΑΓΗ 2: Χαμηλώσαμε το γενικό όριο στο 40%
 last_spoken_word = None
 last_spoken_time = 0
 
@@ -52,15 +52,13 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # --- Η ΝΕΑ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (Βασισμένη στη φωτογραφία σου) ---
+    # Η ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (Οριζόντιο χέρι)
     wrist = raw_landmarks[0]
     middle_tip = raw_landmarks[12]
     
-    # Υπολογίζουμε την απόσταση του δαχτύλου από τον καρπό
-    dx = abs(middle_tip['x'] - wrist['x']) # Οριζόντια απόσταση
-    dy = abs(middle_tip['y'] - wrist['y']) # Κάθετη απόσταση
+    dx = abs(middle_tip['x'] - wrist['x'])
+    dy = abs(middle_tip['y'] - wrist['y'])
     
-    # Το χέρι θεωρείται "οριζόντιο" στο πλάι, αν η απόσταση X είναι μεγαλύτερη από την Y
     is_hand_horizontal = dx > dy and dx > 0.05
     is_hand_at_chin = wrist['y'] < 0.75 
     
@@ -68,10 +66,10 @@ def handle_landmarks(data):
         active_now = "kalo_mesimeri"
         prediction_prob = max(prediction_prob, 0.85)
 
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΤΟ ΓΕΙΑ (ΠΙΟ ΕΥΚΟΛΟ)
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ: Ακόμα πιο εύκολο για "Γεια" και "Καλημέρα"
     if prediction_prob < CONFIDENCE_THRESHOLD:
-        if active_now == "geia" and prediction_prob >= 0.35:
-            pass # Το αφήνουμε να περάσει αν είναι 'γεια' και έχει έστω 35% σιγουριά
+        if active_now in ["geia", "kalimera"] and prediction_prob >= 0.30:
+            pass # Το αφήνουμε να περάσει με μόλις 30% σιγουριά
         else:
             active_now = 'noise'
 
