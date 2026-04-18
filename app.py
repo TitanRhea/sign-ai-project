@@ -25,8 +25,10 @@ CONFIDENCE_THRESHOLD = 0.40
 last_spoken_word = None
 last_spoken_time = 0
 
-gesture_start_time = 0
+# Μεταβλητές Μηχανής Καταστάσεων
 pending_gesture = None
+gesture_start_time = 0
+locked_word = None
 
 @app.route('/')
 def index():
@@ -35,7 +37,7 @@ def index():
 @socketio.on('process_landmarks')
 def handle_landmarks(data):
     global current_candidate, consecutive_frames, last_spoken_word, last_spoken_time
-    global gesture_start_time, pending_gesture
+    global pending_gesture, gesture_start_time, locked_word
     
     if model is None: return
     
@@ -57,50 +59,59 @@ def handle_landmarks(data):
     prediction_prob = probabilities[best_class_index]
 
     # =========================================================
-    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΟΛΓΑΣ (Φίμωση AI + Έλεγχος Δείκτη) ---
+    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΟΛΓΑΣ: ΘΕΣΗ ΣΤΗΝ ΟΘΟΝΗ ΚΑΙ ΔΕΙΚΤΗΣ ---
     # =========================================================
     wrist_x = raw_landmarks[0]['x']
     wrist_y = raw_landmarks[0]['y']
     
-    index_up = raw_landmarks[8]['y'] < raw_landmarks[6]['y']       # Δείκτης πάνω
-    middle_down = raw_landmarks[12]['y'] > raw_landmarks[10]['y']  # Μεσαίο διπλωμένο
-    ring_down = raw_landmarks[16]['y'] > raw_landmarks[14]['y']    # Παράμεσος διπλωμένος
-    pinky_down = raw_landmarks[20]['y'] > raw_landmarks[18]['y']   # Μικρό διπλωμένο
+    # Θέση: Είναι ψηλά; Είναι στο πλάι (μακριά από το 0.5 του κέντρου);
+    is_high = wrist_y < 0.80
+    is_side = abs(wrist_x - 0.5) > 0.15 
     
-    is_fist_base = middle_down and ring_down and pinky_down
-    is_high = wrist_y < 0.80 # Ύψος ώμου/λαιμού
-    is_side = abs(wrist_x - 0.5) > 0.15 # Εκτός θώρακα
-    
-    # 1. ΑΝ ΔΟΥΜΕ ΓΡΟΘΙΑ ΕΚΤΟΣ ΘΩΡΑΚΑ -> ΞΕΚΙΝΑΜΕ ΤΟ ΧΡΟΝΟΜΕΤΡΟ
-    if is_high and is_side and is_fist_base:
-        if pending_gesture is None:
-            pending_gesture = "checking"
-            gesture_start_time = time.time()
-        
-        # 2. ΟΣΟ ΤΟ ΧΕΡΙ ΕΙΝΑΙ ΕΚΕΙ...
-        if pending_gesture == "checking":
-            if (time.time() - gesture_start_time) > 0.3:
-                # Πέρασαν 0.3s! Ώρα να αποφασίσουμε και να το κρατήσουμε κλειδωμένο.
-                if index_up:
-                    active_now = "kalimera"
+    # Δείκτης: Η άκρη του (8) είναι αισθητά πιο ψηλά από τη βάση του (5);
+    is_index_up = raw_landmarks[8]['y'] < (raw_landmarks[5]['y'] - 0.04)
+
+    # Παίρνουμε τον έλεγχο ΑΝ το AI βγάλει λέξη που συγχέεται
+    if active_now in ["efharisto", "kalimera", "kalo_mesimeri"]:
+        if is_high and is_side:
+            # Είναι στο πλάι! Άρα είναι Καλημέρα ή Καλό Μεσημέρι. Ξεκινάμε το χρονόμετρο.
+            if pending_gesture is None:
+                pending_gesture = "waiting"
+                gesture_start_time = time.time()
+                active_now = "noise" # Φίμωση AI
+            elif pending_gesture == "waiting":
+                if (time.time() - gesture_start_time) < 0.4:
+                    active_now = "noise" # Παραμένει φιμωμένο για 400ms
                 else:
-                    active_now = "kalo_mesimeri"
+                    # Τέλος χρόνου! Αποφασίζουμε και κλειδώνουμε.
+                    pending_gesture = "locked"
+                    locked_word = "kalimera" if is_index_up else "kalo_mesimeri"
+                    active_now = locked_word
+                    prediction_prob = 0.99
+            elif pending_gesture == "locked":
+                # Αν ήταν κλειδωμένο στο Καλό Μεσημέρι αλλά σηκωθεί ο δείκτης, το κάνουμε Καλημέρα
+                if locked_word == "kalo_mesimeri" and is_index_up:
+                    locked_word = "kalimera"
+                active_now = locked_word
                 prediction_prob = 0.99
-            else:
-                # ΣΙΓΗ ΑΣΥΡΜΑΤΟΥ: Όσο μετράει ο χρόνος, απαγορεύουμε στο AI να πει "Ευχαριστώ"
-                active_now = "noise"
-                prediction_prob = 0.0
-    else:
-        # Αν χαλάσει η γροθιά ή κατέβει το χέρι, ακυρώνουμε τα πάντα
-        pending_gesture = None
-
-
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ
-    if prediction_prob < CONFIDENCE_THRESHOLD:
-        if active_now == "geia" and prediction_prob >= 0.30:
-            pass 
         else:
-            active_now = 'noise'
+            # Είναι στο Κέντρο (Στέρνο)! Άρα είναι 100% Ευχαριστώ.
+            pending_gesture = None
+            locked_word = None
+            active_now = "efharisto"
+            prediction_prob = 0.99
+    else:
+        # Καθαρισμός καταστάσεων αν πέσουμε σε άλλη λέξη
+        pending_gesture = None
+        locked_word = None
+
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ (Παραμένει ίδιος)
+    if active_now not in ["efharisto", "kalimera", "kalo_mesimeri"]:
+        if prediction_prob < CONFIDENCE_THRESHOLD:
+            if active_now == "geia" and prediction_prob >= 0.30:
+                pass 
+            else:
+                active_now = 'noise'
 
     # --- Ο ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
     if active_now:
