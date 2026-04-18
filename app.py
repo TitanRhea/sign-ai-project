@@ -52,19 +52,24 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # Η ΔΙΚΗ ΣΟΥ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ
+    # Η ΔΙΚΗ ΣΟΥ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (ΠΙΟ ΕΥΚΟΛΗ)
     wrist_y = raw_landmarks[0]['y']
     middle_finger_tip_y = raw_landmarks[12]['y']
     
-    is_hand_vertical = middle_finger_tip_y < wrist_y - 0.1
-    is_hand_at_chin = wrist_y < 0.65
+    # Χαλαρώσαμε τα νούμερα για να μην απαιτεί τέλεια πόζα
+    is_hand_vertical = middle_finger_tip_y < wrist_y - 0.05 
+    is_hand_at_chin = wrist_y < 0.75 
     
     if active_now == "efharisto" and is_hand_at_chin and is_hand_vertical:
         active_now = "kalo_mesimeri"
         prediction_prob = max(prediction_prob, 0.85)
 
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΤΟ ΓΕΙΑ (ΠΙΟ ΕΥΚΟΛΟ)
     if prediction_prob < CONFIDENCE_THRESHOLD:
-        active_now = 'noise'
+        if active_now == "geia" and prediction_prob >= 0.35:
+            pass # Το αφήνουμε να περάσει αν είναι 'γεια' και έχει έστω 35% σιγουριά
+        else:
+            active_now = 'noise'
 
     # --- Ο ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
     if active_now:
