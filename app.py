@@ -25,7 +25,6 @@ CONFIDENCE_THRESHOLD = 0.40
 last_spoken_word = None
 last_spoken_time = 0
 
-# ΝΕΕΣ ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗΝ ΚΑΘΥΣΤΕΡΗΣΗ (0.3 sec)
 gesture_start_time = 0
 pending_gesture = None
 
@@ -58,7 +57,7 @@ def handle_landmarks(data):
     prediction_prob = probabilities[best_class_index]
 
     # =========================================================
-    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΟΛΓΑΣ (Έλεγχος 0.3s) ---
+    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΟΛΓΑΣ (Φίμωση AI + Έλεγχος Δείκτη) ---
     # =========================================================
     wrist_x = raw_landmarks[0]['x']
     wrist_y = raw_landmarks[0]['y']
@@ -69,10 +68,8 @@ def handle_landmarks(data):
     pinky_down = raw_landmarks[20]['y'] > raw_landmarks[18]['y']   # Μικρό διπλωμένο
     
     is_fist_base = middle_down and ring_down and pinky_down
-    is_high = wrist_y < 0.80 # Ύψος ώμου/λαιμού (Το κατεβάσαμε λίγο για να πιάνει τον ώμο)
-    
-    # Αν το χέρι απέχει > 0.15 από το κέντρο της οθόνης (0.5), θεωρούμε ότι είναι εκτός θώρακα (στο πλάι)
-    is_side = abs(wrist_x - 0.5) > 0.15 
+    is_high = wrist_y < 0.80 # Ύψος ώμου/λαιμού
+    is_side = abs(wrist_x - 0.5) > 0.15 # Εκτός θώρακα
     
     # 1. ΑΝ ΔΟΥΜΕ ΓΡΟΘΙΑ ΕΚΤΟΣ ΘΩΡΑΚΑ -> ΞΕΚΙΝΑΜΕ ΤΟ ΧΡΟΝΟΜΕΤΡΟ
     if is_high and is_side and is_fist_base:
@@ -80,21 +77,21 @@ def handle_landmarks(data):
             pending_gesture = "checking"
             gesture_start_time = time.time()
         
-        # 2. ΕΧΟΥΝ ΠΕΡΑΣΕΙ 0.3 ΔΕΥΤΕΡΟΛΕΠΤΑ;
-        if pending_gesture == "checking" and (time.time() - gesture_start_time) > 0.3:
-            if index_up:
-                # Ο δείκτης σηκώθηκε! Είναι ΚΑΛΗΜΕΡΑ
-                active_now = "kalimera"
+        # 2. ΟΣΟ ΤΟ ΧΕΡΙ ΕΙΝΑΙ ΕΚΕΙ...
+        if pending_gesture == "checking":
+            if (time.time() - gesture_start_time) > 0.3:
+                # Πέρασαν 0.3s! Ώρα να αποφασίσουμε και να το κρατήσουμε κλειδωμένο.
+                if index_up:
+                    active_now = "kalimera"
+                else:
+                    active_now = "kalo_mesimeri"
                 prediction_prob = 0.99
             else:
-                # Ο δείκτης έμεινε κάτω! Είναι ΚΑΛΟ ΜΕΣΗΜΕΡΙ
-                active_now = "kalo_mesimeri"
-                prediction_prob = 0.99
-            
-            # Μηδενίζουμε για την επόμενη κίνηση
-            pending_gesture = None
+                # ΣΙΓΗ ΑΣΥΡΜΑΤΟΥ: Όσο μετράει ο χρόνος, απαγορεύουμε στο AI να πει "Ευχαριστώ"
+                active_now = "noise"
+                prediction_prob = 0.0
     else:
-        # Αν χαλάσει η γροθιά ή κατέβει το χέρι, ακυρώνουμε το χρονόμετρο
+        # Αν χαλάσει η γροθιά ή κατέβει το χέρι, ακυρώνουμε τα πάντα
         pending_gesture = None
 
 
