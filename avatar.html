@@ -1,1011 +1,475 @@
 <!DOCTYPE html>
-
 <html lang="el">
-
 <head>
-
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>SignAI | Αβατάρ Μετάφρασης</title>
-
+    <title>Web Avatar - Final Flow </title>
     <style>
-
         body { margin: 0; overflow: hidden; background-color: #f0e6dc; font-family: 'Segoe UI', sans-serif; }
-
-        
-
-        /* --- ΤΟ ΝΕΟ ΜΕΝΟΥ --- */
-
-        #nav-bar {
-
-            position: absolute;
-
-            top: 0; left: 0; width: 100%;
-
-            background: rgba(51, 51, 51, 0.9); /* Ελαφρώς διάφανο για να φαίνεται το 3D από πίσω */
-
-            padding: 15px 0;
-
-            display: flex;
-
-            justify-content: center;
-
-            gap: 20px;
-
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-
-            z-index: 100;
-
-        }
-
-        .nav-button {
-
-            color: white;
-
-            text-decoration: none;
-
-            font-weight: bold;
-
-            padding: 8px 20px;
-
-            border-radius: 20px;
-
-            background: #555;
-
-            transition: 0.3s;
-
-        }
-
-        .nav-button:hover { background: #777; }
-
-        .active { background: #4CAF50; }
-
-        /* -------------------- */
-
-
-
         #canvas-container { width: 100vw; height: 100vh; display: block; }
-
         #ui-layer {
-
             position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-
             text-align: center; width: 100%; pointer-events: auto;
-
         }
-
         #subtitle {
-
             font-size: 22px; color: #333; background: rgba(255, 255, 255, 0.95);
-
             padding: 12px 25px; border-radius: 20px; display: inline-block; 
-
             margin-bottom: 15px; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-
             min-width: 380px; max-width: 80%; word-wrap: break-word; pointer-events: none;
-
         }
-
         .controls { display: flex; justify-content: center; gap: 10px; align-items: center; pointer-events: auto;}
-
         button { 
-
             font-size: 16px; padding: 12px 25px; border-radius: 10px; 
-
             cursor: pointer; border: none; background: #4CAF50; color: white; font-weight: bold; transition: 0.3s;
-
         }
-
         button.listening { background-color: #f44336; animation: pulse 1.5s infinite; }
-
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
-
         select { font-size: 16px; padding: 12px; border-radius: 10px; border: 1px solid #ddd; background: white;}
-
     </style>
-
 </head>
-
 <body>
 
-
-
-    <div id="nav-bar">
-
-        <a href="index.html" class="nav-button">Αναγνώριση (Κάμερα)</a>
-
-        <a href="avatar.html" class="nav-button active">Αβατάρ (Μετάφραση)</a>
-
-    </div>
-
-
-
     <div id="canvas-container"></div>
-
     
-
     <div id="ui-layer">
-
         <div id="subtitle">Μικρόφωνο Κλειστό</div><br>
-
         <div class="controls">
-
             <select id="avatar-select" onchange="loadAvatar(this.value)">
-
                 <option value="updated_model.glb">Avatar: Rhea (Νέο Μοντέλο)</option>
-
                 <option value="titan.glb">Avatar: Titan (Άνδρας)</option>
-
             </select>
-
             <button id="mic-btn">🎙️ Ενεργοποίηση</button>
-
         </div>
-
     </div>
-
-
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
-
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
 
-
-
     <script>
-
-        // ΟΛΟΣ Ο ΔΙΚΟΣ ΣΟΥ ΚΩΔΙΚΑΣ ΑΚΡΙΒΩΣ ΟΠΩΣ ΗΤΑΝ
-
         const scene = new THREE.Scene();
-
         scene.background = new THREE.Color(0xf0e6dc);
-
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-
         camera.position.set(0, 1.8, 4.5); 
-
         const renderer = new THREE.WebGLRenderer({ antialias: true });
-
         renderer.setSize(window.innerWidth, window.innerHeight);
-
         renderer.outputEncoding = THREE.sRGBEncoding;
-
         document.getElementById('canvas-container').appendChild(renderer.domElement);
-
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
-
         controls.target.set(0, 1.5, 0); 
-
         controls.update();
 
-
-
         scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-
         const light = new THREE.DirectionalLight(0xffffff, 0.6);
-
         light.position.set(5, 10, 5);
-
         scene.add(light);
 
-
-
         let currentModel = null, bones = {}, is_busy = false;
-
         let isTitan = false; 
-
         const deg = (d) => d * (Math.PI / 180);
-
         const basePose = { x: 54, y: 30, z: 17 };
-
         const VOWEL_OPEN = { 'α': 115, 'ε': 105, 'η': 105, 'ι': 100, 'ο': 110, 'υ': 100, 'ω': 110 };
 
-
-
         let gestureQueue = [];
-
         let idleTimer = null; 
-
         let displayBuffer = ""; 
 
-
-
         function enqueueGesture(gestureName) {
-
             gestureQueue.push(gestureName);
-
             clearTimeout(idleTimer); 
-
             if (!is_busy) {
-
                 processQueue();
-
             }
-
         }
-
-
 
         function processQueue() {
-
             if (is_busy || gestureQueue.length === 0) return;
-
             clearTimeout(idleTimer); 
 
-
-
             let nextGesture = gestureQueue.shift();
-
             if (nextGesture === 'efcharisto') gesture_efcharisto();
-
             else if (nextGesture === 'kalimera') gesture_kalimera();
-
             else if (nextGesture === 'mesimeri') gesture_mesimeri();
-
             else if (nextGesture === 'geia') gesture_geia();
-
             else if (nextGesture === 'onoma') gesture_onoma();
-
         }
-
-
 
         const loader = new THREE.GLTFLoader();
-
         const dracoLoader = new THREE.DRACOLoader();
-
         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/');
-
         loader.setDRACOLoader(dracoLoader);
 
-
-
         function loadAvatar(file) {
-
             const finalPath = file + "?v=" + Date.now();
-
             isTitan = file.includes('titan'); 
-
             
-
             if (currentModel) scene.remove(currentModel);
-
             bones = { r_fingers: [], l_fingers: [], r_joints: {}, l_joints: {} }; 
-
             
-
             loader.load(finalPath, (gltf) => {
-
                 currentModel = gltf.scene;
-
                 currentModel.position.set(0, 0.6, 0); 
-
                 currentModel.scale.set(1.1, 1.1, 1.1); 
-
                 scene.add(currentModel);
-
                 
-
                 currentModel.traverse(n => {
-
                     if (n.isMesh && (n.name.toLowerCase().includes('cube') || n.name.toLowerCase().includes('box'))) n.visible = false;
-
                     if (n.isBone) {
-
                         const bName = n.name;
-
                         const bLower = bName.toLowerCase();
-
                         if (bLower.includes('jaw')) bones.jaw = n;
-
                         
-
                         if (bName === 'mixamorig6RightArm' || bName === 'mixamorig9RightArm') bones.r_shoulder = n;
-
                         if (bName === 'mixamorig6RightForeArm' || bName === 'mixamorig9RightForeArm') bones.r_elbow = n;
-
                         if (bName === 'mixamorig6RightHand' || bName === 'mixamorig9RightHand') bones.r_wrist = n;
-
                         if (bName === 'mixamorig6LeftArm' || bName === 'mixamorig9LeftArm') bones.l_shoulder = n;
-
                         if (bName === 'mixamorig6LeftForeArm' || bName === 'mixamorig9LeftForeArm') bones.l_elbow = n;
-
                         if (bName === 'mixamorig6LeftHand' || bName === 'mixamorig9LeftHand') bones.l_wrist = n;
-
                         
-
                         const match = bLower.match(/(thumb|index|middle|ring|pinky)(\d)/);
-
                         if (match) {
-
                             if (bLower.includes('right')) { bones.r_joints[match[0]] = n; bones.r_fingers.push(n); } 
-
                             else if (bLower.includes('left')) { bones.l_joints[match[0]] = n; bones.l_fingers.push(n); }
-
                         }
-
                     }
-
                 });
-
                 
-
                 setTimeout(() => {
-
                     resetPose(0.1);
-
                     if (bones.jaw) bones.jaw.rotation.x = deg(90);
-
                     
-
                     if(bones.r_shoulder) {
-
                         let avatarName = isTitan ? 'Titan' : 'Rhea';
-
                         document.getElementById('subtitle').innerText = avatarName + ": Σύστημα Έτοιμο!";
-
                     }
-
                 }, 400);
-
             });
-
         }
-
-
 
         function resetPose(speed = 0.5) {
-
             if (!bones.r_shoulder) return;
-
             gsap.to(bones.r_shoulder.rotation, { x: deg(basePose.x), y: deg(basePose.y), z: deg(basePose.z), duration: speed });
-
             if (bones.l_shoulder) gsap.to(bones.l_shoulder.rotation, { x: deg(basePose.x), y: deg(-basePose.y), z: deg(-basePose.z), duration: speed });
-
             [bones.r_elbow, bones.l_elbow, bones.r_wrist, bones.l_wrist].forEach(b => { if(b) gsap.to(b.rotation, { x: 0, y: 0, z: 0, duration: speed }); });
-
             bones.r_fingers.concat(bones.l_fingers).forEach(f => gsap.to(f.rotation, { x:0, y:0, z:0, duration: speed }));
-
         }
-
-
 
         function clearFingers(speed = 0.2) {
-
             if (bones.r_fingers) {
-
                 bones.r_fingers.concat(bones.l_fingers).forEach(f => gsap.to(f.rotation, { x:0, y:0, z:0, duration: speed }));
-
             }
-
         }
-
-
 
         function finalize_gesture() { 
-
             if (gestureQueue.length > 0) {
-
                 clearFingers(0.2); 
-
                 if(bones.r_wrist) gsap.to(bones.r_wrist.rotation, { x: 0, y: 0, z: 0, duration: 0.2 });
-
                 if(bones.l_wrist) gsap.to(bones.l_wrist.rotation, { x: 0, y: 0, z: 0, duration: 0.2 });
-
                 if(bones.l_shoulder) gsap.to(bones.l_shoulder.rotation, { x: deg(basePose.x), y: deg(-basePose.y), z: deg(-basePose.z), duration: 0.2 });
-
                 if(bones.l_elbow) gsap.to(bones.l_elbow.rotation, { x: 0, y: 0, z: 0, duration: 0.2 });
 
-
-
                 setTimeout(() => { 
-
                     is_busy = false; 
-
                     processQueue(); 
-
                 }, 200); 
-
             } else {
-
                 is_busy = false; 
-
                 idleTimer = setTimeout(() => {
-
                     if (gestureQueue.length === 0 && !is_busy) {
-
                         resetPose(0.5); 
-
                         displayBuffer = ""; 
-
                         document.getElementById('subtitle').innerText = "Ακούω...";
-
                     }
-
                 }, 500); 
-
             }
-
         }
-
-
 
         function customFist(duration = 0.1) {
-
             if (!currentModel) return;
-
             if(bones.l_joints['thumb1']) gsap.to(bones.l_joints['thumb1'].rotation, {x: deg(14), y: deg(-14), z: deg(-27), duration: duration});
-
             if(bones.l_joints['index1']) gsap.to(bones.l_joints['index1'].rotation, {x: deg(52), y: 0, z: deg(-9), duration: duration});
-
             if(bones.l_joints['middle1']) gsap.to(bones.l_joints['middle1'].rotation, {x: deg(55), y: deg(4), z: deg(-3), duration: duration});
-
             if(bones.l_joints['ring1']) gsap.to(bones.l_joints['ring1'].rotation, {x: deg(51), y: deg(5), z: deg(4), duration: duration});
-
             if(bones.l_joints['pinky1']) gsap.to(bones.l_joints['pinky1'].rotation, {x: deg(52), y: deg(-31), z: deg(8), duration: duration});
 
-
-
             if(bones.r_joints['thumb1']) gsap.to(bones.r_joints['thumb1'].rotation, {x: deg(14), y: deg(-14), z: deg(27), duration: duration});
-
             if(bones.r_joints['index1']) gsap.to(bones.r_joints['index1'].rotation, {x: deg(52), y: 0, z: deg(9), duration: duration});
-
             if(bones.r_joints['middle1']) gsap.to(bones.r_joints['middle1'].rotation, {x: deg(55), y: deg(4), z: deg(3), duration: duration});
-
             if(bones.r_joints['ring1']) gsap.to(bones.r_joints['ring1'].rotation, {x: deg(51), y: deg(5), z: deg(-4), duration: duration});
-
             if(bones.r_joints['pinky1']) gsap.to(bones.r_joints['pinky1'].rotation, {x: deg(52), y: deg(-31), z: deg(-8), duration: duration});
-
         }
-
-
 
         function customKalimeraPart2(side, duration = 0.1) {
-
             if (!currentModel) return;
-
             const j = side === 'r' ? bones.r_joints : bones.l_joints;
-
             const s = side === 'r' ? 1 : -1;
-
             
-
             if(j['thumb3']) gsap.to(j['thumb3'].rotation, {x: deg(14), y: deg(-14*s), z: deg(68*s), duration: duration});
-
             
-
             ['middle', 'ring', 'pinky'].forEach(f => {
-
                 if(j[f+'1']) gsap.to(j[f+'1'].rotation, {x: deg(68), y: 0, z: 0, duration: duration});
-
                 if(j[f+'2']) gsap.to(j[f+'2'].rotation, {x: deg(114), y: deg(22*(f==='middle'?s:0)), z: deg(1*s), duration: duration});
-
                 if(j[f+'3']) gsap.to(j[f+'3'].rotation, {x: deg(90), y: 0, z: 0, duration: duration});
-
             });
-
             
-
             if(j['index1']) gsap.to(j['index1'].rotation, {x: 0, y: 0, z: 0, duration: duration});
-
             if(j['index2']) gsap.to(j['index2'].rotation, {x: 0, y: 0, z: 0, duration: duration});
-
             if(j['index3']) gsap.to(j['index3'].rotation, {x: 0, y: 0, z: 0, duration: duration});
-
         }
-
-
 
         function gesture_efcharisto() {
-
             is_busy = true; 
-
             clearFingers(); 
-
             
-
             if(bones.jaw) {
-
                 const jawTl = gsap.timeline();
-
                 jawTl.to(bones.jaw.rotation, { x: deg(100), duration: 0.3, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(115), duration: 0.4, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(94), duration: 0.3, ease: "sine.inOut" })  
-
                      .to(bones.jaw.rotation, { x: deg(108), duration: 0.5, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(90), duration: 0.3, ease: "sine.inOut" }); 
-
             }
-
-
 
             if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(27), y: deg(-35), z: deg(-26), duration: 0.5 });
-
             if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(25), y: deg(-26), z: deg(-107), duration: 0.5 });
-
             setTimeout(() => {
-
                 if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(52), y: deg(-27), z: deg(-24), duration: 0.5 });
-
                 if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(91), y: deg(-24), z: deg(-107), duration: 0.5 });
-
                 if(bones.l_shoulder) gsap.to(bones.l_shoulder.rotation, { x: deg(52), y: deg(27), z: deg(24), duration: 0.5 });
-
                 if(bones.l_elbow) gsap.to(bones.l_elbow.rotation, { x: deg(91), y: deg(24), z: deg(107), duration: 0.5 });
-
                 
-
                 const pulse = gsap.timeline({ repeat: 2, onComplete: finalize_gesture });
-
                 pulse.to({}, { duration: 0.1, onStart: () => { customFist(0.1); } })
-
                      .to({}, { duration: 0.15 }) 
-
                      .to({}, { duration: 0.1, onStart: () => { clearFingers(0.1); } })
-
                      .to({}, { duration: 0.15 }); 
-
             }, 600);
-
         }
 
-
-
         function gesture_kalimera() {
-
             is_busy = true; 
-
             
-
             if(bones.jaw) {
-
                 const jawTl = gsap.timeline();
-
                 jawTl.to(bones.jaw.rotation, { x: deg(115), duration: 0.2, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(94), duration: 0.2, ease: "sine.inOut" })  
-
                      .to(bones.jaw.rotation, { x: deg(100), duration: 0.2, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(115), duration: 0.25, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(90), duration: 0.2, ease: "sine.inOut" }); 
-
             }
 
-
-
             if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(70), y: deg(14), z: deg(-17), duration: 0.5 });
-
             if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(108), y: deg(-31), z: deg(-69), duration: 0.5 });
-
             if(bones.r_wrist) gsap.to(bones.r_wrist.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
 
-
-
             if(bones.r_joints['thumb1']) gsap.to(bones.r_joints['thumb1'].rotation, {x: deg(14), y: deg(-14), z: deg(27), duration: 0.4});
-
             if(bones.r_joints['index1']) gsap.to(bones.r_joints['index1'].rotation, {x: deg(52), y: 0, z: deg(9), duration: 0.4});
-
             if(bones.r_joints['middle1']) gsap.to(bones.r_joints['middle1'].rotation, {x: deg(55), y: deg(4), z: deg(3), duration: 0.4});
-
             if(bones.r_joints['ring1']) gsap.to(bones.r_joints['ring1'].rotation, {x: deg(51), y: deg(5), z: deg(-4), duration: 0.4});
-
             if(bones.r_joints['pinky1']) gsap.to(bones.r_joints['pinky1'].rotation, {x: deg(52), y: deg(-31), z: deg(-8), duration: 0.4});
 
-
-
             setTimeout(() => {
-
                 if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(70), y: deg(14), z: deg(-17), duration: 0.3 });
-
                 
-
                 if(bones.r_elbow) {
-
                     const elbowTurn = gsap.timeline();
-
                     elbowTurn.to(bones.r_elbow.rotation, { x: deg(140), y: deg(-20), z: deg(-40), duration: 0.15, ease: "none" })
-
                              .to(bones.r_elbow.rotation, { x: deg(140), y: deg(-20), z: deg(-40), duration: 0.15, ease: "power1.out" });
-
                 }
-
-
 
                 if(bones.r_wrist) {
-
                     const wristTurn = gsap.timeline();
-
                     wristTurn.to(bones.r_wrist.rotation, { x: 0, y: deg(-80), z: 0, duration: 0.15, ease: "none" })
-
                              .to(bones.r_wrist.rotation, { x: 0, y: deg(-160), z: 0, duration: 0.15, ease: "power1.out" });
-
                 }
-
-
 
                 customKalimeraPart2('r', 0.3); 
 
-
-
                 setTimeout(() => {
-
                     const indexBones = [bones.r_joints['index1'], bones.r_joints['index2'], bones.r_joints['index3']].filter(b=>b);
-
                     if (indexBones.length > 0) {
-
                         const flick = gsap.timeline({ repeat: 1, onComplete: finalize_gesture });
-
                         flick.to(indexBones.map(b=>b.rotation), { x: deg(60), duration: 0.15, ease: "power1.inOut" })
-
                              .to(indexBones.map(b=>b.rotation), { x: 0, duration: 0.15, ease: "power1.inOut" });
-
                     } else { finalize_gesture(); }
-
                 }, 400);
 
-
-
             }, 600);
-
         }
-
-
 
         function gesture_onoma() {
-
             is_busy = true; 
-
             clearFingers(); 
 
-
-
             if(bones.jaw) {
-
                 const jawTl = gsap.timeline();
-
                 jawTl.to(bones.jaw.rotation, { x: deg(108), duration: 0.3, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(108), duration: 0.3, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(115), duration: 0.4, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(90), duration: 0.2, ease: "sine.inOut" }); 
-
             }
-
             
-
             if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(50), y: deg(-15), z: deg(-70), duration: 0.5 });
-
             if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(-9), y: deg(32), z: deg(-10), duration: 0.5 });
-
             if(bones.r_wrist) gsap.to(bones.r_wrist.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
-
             
-
             customKalimeraPart2('r', 0.3); 
 
-
-
             setTimeout(() => {
-
                 if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(25), y: deg(7), z: deg(-51), duration: 0.5 });
-
                 if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(59), y: deg(1), z: deg(-48), duration: 0.5 });
-
                 if(bones.l_shoulder) gsap.to(bones.l_shoulder.rotation, { x: deg(25), y: deg(-7), z: deg(51), duration: 0.5 });
-
                 if(bones.l_elbow) gsap.to(bones.l_elbow.rotation, { x: deg(59), y: deg(1), z: deg(48), duration: 0.5 });
-
                 
-
                 customKalimeraPart2('l', 0.5); 
 
-
-
                 setTimeout(() => {
-
                     let start = Date.now();
-
                     const draw = () => {
-
                         let el = (Date.now() - start) / 1000;
-
                         if (el < 3.2) {
-
                             const r = 0.35; 
-
                             if(bones.r_wrist) {
-
                                 bones.r_wrist.rotation.x = Math.sin(el * 11) * r;
-
                                 bones.r_wrist.rotation.y = Math.cos(el * 11) * r;
-
                             }
-
                             if(bones.l_wrist) {
-
                                 bones.l_wrist.rotation.x = Math.sin(el * 11) * r;
-
                                 bones.l_wrist.rotation.y = -Math.cos(el * 11) * r;
-
                             }
-
                             requestAnimationFrame(draw);
-
                         } else { finalize_gesture(); }
-
                     };
-
                     draw();
-
                 }, 500); 
-
             }, 1000); 
-
         }
-
-
 
         function gesture_mesimeri() {
-
             is_busy = true; 
-
             clearFingers(); 
-
             
-
             if(bones.jaw) {
-
                 const jawTl = gsap.timeline();
-
                 jawTl.to(bones.jaw.rotation, { x: deg(100), duration: 0.3, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(94), duration: 0.3, ease: "sine.inOut" })  
-
                      .to(bones.jaw.rotation, { x: deg(100), duration: 0.3, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(94), duration: 0.3, ease: "sine.inOut" })  
-
                      .to(bones.jaw.rotation, { x: deg(90), duration: 0.3, ease: "sine.inOut" }); 
-
             }
-
             
-
             let sh_start = isTitan ? { x: deg(60), y: deg(14), z: deg(-25) } : { x: deg(70), y: deg(14), z: deg(-17) };
-
             let el_start = isTitan ? { x: deg(90), y: deg(-31), z: deg(-85) } : { x: deg(108), y: deg(-31), z: deg(-69) };
-
             
-
             if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: sh_start.x, y: sh_start.y, z: sh_start.z, duration: 0.5 });
-
             if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: el_start.x, y: el_start.y, z: el_start.z, duration: 0.5 });
-
             if(bones.r_wrist) gsap.to(bones.r_wrist.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
 
-
-
             setTimeout(() => {
-
+                // ΕΔΩ ΠΕΡΑΣΤΗΚΑΝ ΟΙ ΤΙΜΕΣ ΣΟΥ ΑΠΟ ΤΟ TUNER ΓΙΑ ΤΟΝ TITAN!
                 let sh_main = isTitan ? { x: deg(96), y: deg(-3), z: deg(-34) } : { x: deg(60), y: deg(-10), z: deg(-43) };
-
                 let el_main = isTitan ? { x: deg(0), y: deg(-46), z: deg(-91) } : { x: deg(43), y: deg(-38), z: deg(-83) };
 
-
-
                 if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: sh_main.x, y: sh_main.y, z: sh_main.z, duration: 0.5 });
-
                 if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: el_main.x, y: el_main.y, z: el_main.z, duration: 0.5 });
-
                 
-
                 if(bones.r_wrist) {
-
                     gsap.to(bones.r_wrist.rotation, { x: deg(-43), y: deg(-21), z: deg(-68), duration: 0.5 });
-
                     
-
                     setTimeout(() => {
-
                         const tl_v = gsap.timeline({ repeat: 2, onComplete: finalize_gesture });
-
                         tl_v.to(bones.r_wrist.rotation, { z: deg(-68 + 25), duration: 0.4, ease: "sine.inOut" })
-
                             .to(bones.r_wrist.rotation, { z: deg(-68 - 25), duration: 0.4, ease: "sine.inOut" });
-
                     }, 500);
-
                 } else { finalize_gesture(); }
-
             }, 600);
-
         }
-
-
 
         function gesture_geia() {
-
             is_busy = true; 
-
             clearFingers(); 
-
             
-
             if(bones.jaw) {
-
                 const jawTl = gsap.timeline();
-
                 jawTl.to(bones.jaw.rotation, { x: deg(98), duration: 0.25, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(115), duration: 0.35, ease: "sine.inOut" }) 
-
                      .to(bones.jaw.rotation, { x: deg(90), duration: 0.2, ease: "sine.inOut" }); 
-
             }
-
-
 
             if(bones.r_shoulder) gsap.to(bones.r_shoulder.rotation, { x: deg(11), y: deg(18), z: deg(4), duration: 0.5 });
-
             if(bones.r_elbow) gsap.to(bones.r_elbow.rotation, { x: deg(-10), y: deg(35), z: deg(-128), duration: 0.5 });
-
             setTimeout(() => {
-
                 if(bones.r_wrist) {
-
                     const tl = gsap.timeline({ repeat: 4, onComplete: finalize_gesture });
-
                     tl.to(bones.r_wrist.rotation, { z: deg(25), duration: 0.25 }).to(bones.r_wrist.rotation, { z: deg(-25), duration: 0.25 });
-
                 } else { finalize_gesture(); }
-
             }, 600);
-
         }
-
-
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
         const micBtn = document.getElementById('mic-btn');
-
         const subtitle = document.getElementById('subtitle');
-
         let recognition = null, isListening = false;
 
-
-
         if (SpeechRecognition) {
-
             recognition = new SpeechRecognition();
-
             recognition.lang = 'el-GR';
-
             recognition.continuous = false; 
-
             recognition.interimResults = false;
 
-
-
             recognition.onresult = (event) => {
-
                 const text = event.results[0][0].transcript.toLowerCase().trim();
-
                 displayBuffer += (displayBuffer === "" ? "" : " ") + text;
-
                 subtitle.innerText = "Είπες: " + displayBuffer;
 
-
-
                 const keywords = {
-
                     'efcharisto': ["ευχαριστώ", "ευχαριστω"],
-
                     'kalimera': ["καλημέρα", "καλημερα"],
-
                     'mesimeri': ["μεσημέρι", "μεσημερι", "καλό μεσημέρι", "καλο μεσημερι"],
-
                     'geia': ["γεια", "γειά", "χαίρετε"],
-
                     'onoma': ["όνομά", "όνομα", "ονομα", "ποιο είναι", "ποιο ειναι"]
-
                 };
 
-
-
                 Object.entries(keywords).forEach(([gesture, words]) => {
-
                     if (words.some(w => text.includes(w))) {
-
                         enqueueGesture(gesture);
-
                     }
-
                 });
-
             };
-
-
 
             recognition.onend = () => {
-
                 if (isListening) {
-
                     setTimeout(() => { try { recognition.start(); } catch(e) {} }, 10);
-
                 }
-
             };
 
-
-
             recognition.onerror = () => { if(isListening) recognition.stop(); };
-
         }
 
-
-
         micBtn.onclick = () => {
-
             if (!isListening) {
-
                 isListening = true; displayBuffer = "";
-
                 try { recognition.start(); } catch(e) {}
-
                 micBtn.innerText = "🛑 Κλείσιμο"; micBtn.classList.add('listening');
-
                 subtitle.innerText = "Ακούω..."; 
-
             } else {
-
                 isListening = false; recognition.stop();
-
                 micBtn.innerText = "🎙️ Ενεργοποίηση"; micBtn.classList.remove('listening');
-
                 subtitle.innerText = "Μικρόφωνο Κλειστό";
-
             }
-
         };
 
-
-
         loadAvatar('updated_model.glb');
-
         function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
-
         animate();
 
-
-
         window.addEventListener('resize', () => {
-
             camera.aspect = window.innerWidth / window.innerHeight;
-
             camera.updateProjectionMatrix();
-
             renderer.setSize(window.innerWidth, window.innerHeight);
-
         });
-
     </script>
-
 </body>
-
 </html>
