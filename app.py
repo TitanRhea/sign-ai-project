@@ -25,8 +25,8 @@ CONFIDENCE_THRESHOLD = 0.40
 last_spoken_word = None
 last_spoken_time = 0
 
-# ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗ ΔΙΑΔΡΟΜΗ ΤΗΣ ΟΛΓΑΣ
-waiting_at_side = False # Έχει πάει το χέρι στο πλάι;
+# ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗ ΔΙΑΔΡΟΜΗ (ΠΙΟ ΑΝΘΕΚΤΙΚΕΣ)
+side_memory_time = 0 
 
 @app.route('/')
 def index():
@@ -35,7 +35,7 @@ def index():
 @socketio.on('process_landmarks')
 def handle_landmarks(data):
     global current_candidate, consecutive_frames, last_spoken_word, last_spoken_time
-    global waiting_at_side
+    global side_memory_time
     
     if model is None: return
     
@@ -60,44 +60,40 @@ def handle_landmarks(data):
     wrist_y = raw_landmarks[0]['y']
     middle_tip = raw_landmarks[12]
     
-    # Έλεγχος Δείκτη
+    # Αυστηρός έλεγχος δείκτη
     is_index_up = raw_landmarks[8]['y'] < (raw_landmarks[12]['y'] - 0.08)
     
-    # Έλεγχος Θέσης
-    is_side = abs(wrist_x - 0.5) > 0.18  # Πολύ καθαρά στο πλάι
-    is_center = abs(wrist_x - 0.5) < 0.15 # Στο κέντρο (μπροστά από το πρόσωπο)
-    is_high = wrist_y < 0.75             # Ύψος ώμου και πάνω
-    is_chin_level = 0.4 < wrist_y < 0.7   # Ακριβώς στο ύψος του πηγουνιού
+    # Όρια θέσης
+    is_side = abs(wrist_x - 0.5) > 0.16 
+    is_center = abs(wrist_x - 0.5) < 0.20
+    is_high = wrist_y < 0.85
+    is_chin_level = 0.35 < wrist_y < 0.80 # Πιο ευρύ όριο για το πηγούνι
     
-    # Έλεγχος αν η παλάμη είναι οριζόντια (για το πηγούνι)
+    # Οριζόντια παλάμη
     dx = abs(middle_tip['x'] - raw_landmarks[0]['x'])
     dy = abs(middle_tip['y'] - raw_landmarks[0]['y'])
-    is_horizontal = dx > dy
+    is_horizontal = dx > (dy * 0.8) # Πιο ελαστικό όριο για την κλίση
 
-    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΔΙΑΔΡΟΜΗΣ ---
+    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΔΙΑΔΡΟΜΗΣ (STICKY MEMORY) ---
     
+    # Αν το χέρι πάει στο πλάι, ο Εγκέφαλος το "σημειώνει" για τα επόμενα 2 δευτερόλεπτα
     if is_high and is_side:
-        # ΒΗΜΑ 1: Το χέρι είναι στο πλάι. Περιμένουμε...
-        waiting_at_side = True
+        side_memory_time = time.time()
         
         if is_index_up:
-            # Αν όσο είναι στο πλάι σηκωθεί ο δείκτης -> ΚΑΛΗΜΕΡΑ
             active_now = "kalimera"
             prediction_prob = 0.99
-            waiting_at_side = False # Η διαδρομή ολοκληρώθηκε
+            side_memory_time = 0 # Καθαρισμός μετά την Καλημέρα
         else:
-            # Είναι στο πλάι αλλά γροθιά. Μην λες τίποτα ακόμα.
             active_now = "noise"
             
-    elif waiting_at_side and is_center and is_chin_level and is_horizontal:
-        # ΒΗΜΑ 2: Το χέρι ήταν στο πλάι και ΤΩΡΑ ήρθε στο πηγούνι οριζόντια -> ΚΑΛΟ ΜΕΣΗΜΕΡΙ
+    # Έλεγχος αν είμαστε ακόμα μέσα στο χρόνο της "μνήμης" (2 δευτερόλεπτα)
+    has_side_memory = (time.time() - side_memory_time) < 2.0
+
+    if has_side_memory and is_center and is_chin_level and is_horizontal:
         active_now = "kalo_mesimeri"
         prediction_prob = 0.99
-        waiting_at_side = False # Η διαδρομή ολοκληρώθηκε
-        
-    elif not is_high:
-        # Αν το χέρι πέσει κάτω, μηδενίζουμε τη διαδρομή
-        waiting_at_side = False
+        # Μην μηδενίζεις αμέσως το side_memory_time εδώ για να προλάβει ο σταθεροποιητής να το "πιάσει"
 
     # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ (Κλειδωμένος)
     if active_now not in ["efharisto", "kalimera", "kalo_mesimeri"]:
@@ -121,6 +117,7 @@ def handle_landmarks(data):
                 last_spoken_word = current_candidate
                 last_spoken_time = time.time()
                 consecutive_frames = 0
+                side_memory_time = 0 # Καθαρισμός μνήμης αφού ειπωθεί η λέξη
     else:
         consecutive_frames = 0
         current_candidate = None
