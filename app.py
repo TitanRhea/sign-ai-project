@@ -17,7 +17,7 @@ except FileNotFoundError:
     print("❌ Σφάλμα: Δεν βρέθηκε το sign_model.pkl!")
     model = None
 
-# --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
+# --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (Από την Python) ---
 current_candidate = None
 consecutive_frames = 0
 REQUIRED_FRAMES = 3 
@@ -52,23 +52,30 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # --- Η ΝΕΑ, ΑΠΟΛΥΤΑ ΧΑΛΑΡΗ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ ---
+    # --- Η ΔΙΚΗ ΣΟΥ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (ΟΛΗ Η ΠΑΛΑΜΗ ΚΑΘΕΤΗ) ---
     wrist_y = raw_landmarks[0]['y']
-    middle_finger_tip_y = raw_landmarks[12]['y']
+    index_tip_y = raw_landmarks[8]['y']      # Δείκτης
+    middle_tip_y = raw_landmarks[12]['y']    # Μέσος
+    ring_tip_y = raw_landmarks[16]['y']      # Παράμεσος
+    pinky_tip_y = raw_landmarks[20]['y']     # Μικρό δαχτυλάκι
     
-    # Αρκεί η άκρη του δαχτύλου να είναι πιο πάνω από τον καρπό (δεν απαιτείται τέλεια καθετότητα)
-    is_hand_vertical = middle_finger_tip_y < wrist_y 
-    # Αρκεί το χέρι να φαίνεται στην κάμερα (όριο στο 95% της οθόνης)
-    is_hand_at_chin = wrist_y < 0.95 
+    # Ελέγχουμε ότι ΟΛΑ τα δάχτυλα της παλάμης είναι προς τα πάνω σε σχέση με τον καρπό
+    is_hand_vertical = (
+        index_tip_y < wrist_y - 0.05 and
+        middle_tip_y < wrist_y - 0.05 and
+        ring_tip_y < wrist_y - 0.05 and
+        pinky_tip_y < wrist_y - 0.05
+    )
+    is_hand_at_chin = wrist_y < 0.75 
     
     if active_now == "efharisto" and is_hand_at_chin and is_hand_vertical:
         active_now = "kalo_mesimeri"
         prediction_prob = max(prediction_prob, 0.85)
 
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΤΟ ΓΕΙΑ
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΤΟ ΓΕΙΑ (ΠΙΟ ΕΥΚΟΛΟ)
     if prediction_prob < CONFIDENCE_THRESHOLD:
         if active_now == "geia" and prediction_prob >= 0.35:
-            pass 
+            pass # Το αφήνουμε να περάσει αν είναι 'γεια' και έχει έστω 35% σιγουριά
         else:
             active_now = 'noise'
 
