@@ -25,6 +25,10 @@ CONFIDENCE_THRESHOLD = 0.40
 last_spoken_word = None
 last_spoken_time = 0
 
+# ΝΕΕΣ ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗΝ ΚΑΘΥΣΤΕΡΗΣΗ (0.3 sec)
+gesture_start_time = 0
+pending_gesture = None
+
 @app.route('/')
 def index():
     return "SignAI Brain is LIVE!"
@@ -32,6 +36,7 @@ def index():
 @socketio.on('process_landmarks')
 def handle_landmarks(data):
     global current_candidate, consecutive_frames, last_spoken_word, last_spoken_time
+    global gesture_start_time, pending_gesture
     
     if model is None: return
     
@@ -52,27 +57,51 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # --- Η ΣΩΣΤΗ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (ΚΑΘΕΤΟ ΧΕΡΙ) ---
-    wrist = raw_landmarks[0]
-    middle_tip = raw_landmarks[12]
+    # =========================================================
+    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΟΛΓΑΣ (Έλεγχος 0.3s) ---
+    # =========================================================
+    wrist_x = raw_landmarks[0]['x']
+    wrist_y = raw_landmarks[0]['y']
     
-    # Μετράμε το πλάτος (dx) και το ύψος (dy) του χεριού
-    dx = abs(middle_tip['x'] - wrist['x'])
-    dy = abs(middle_tip['y'] - wrist['y'])
+    index_up = raw_landmarks[8]['y'] < raw_landmarks[6]['y']       # Δείκτης πάνω
+    middle_down = raw_landmarks[12]['y'] > raw_landmarks[10]['y']  # Μεσαίο διπλωμένο
+    ring_down = raw_landmarks[16]['y'] > raw_landmarks[14]['y']    # Παράμεσος διπλωμένος
+    pinky_down = raw_landmarks[20]['y'] > raw_landmarks[18]['y']   # Μικρό διπλωμένο
     
-    # ΤΩΡΑ ΕΙΝΑΙ ΣΩΣΤΟ: Αν το ύψος (dy) είναι μεγαλύτερο από το πλάτος (dx), το χέρι είναι ΚΑΘΕΤΟ!
-    is_hand_vertical = dy > dx 
-    is_in_chin_area = wrist['y'] < 0.85 # Αρκετά χαλαρό όριο για να το πιάνει παντού
+    is_fist_base = middle_down and ring_down and pinky_down
+    is_high = wrist_y < 0.80 # Ύψος ώμου/λαιμού (Το κατεβάσαμε λίγο για να πιάνει τον ώμο)
     
-    # Αν το AI νομίζει ότι είναι 'ευχαριστώ', αλλά εμείς βλέπουμε ΚΑΘΕΤΟ χέρι, είναι Καλό Μεσημέρι!
-    if active_now == "efharisto" and is_in_chin_area and is_hand_vertical:
-        active_now = "kalo_mesimeri"
-        prediction_prob = 0.99
+    # Αν το χέρι απέχει > 0.15 από το κέντρο της οθόνης (0.5), θεωρούμε ότι είναι εκτός θώρακα (στο πλάι)
+    is_side = abs(wrist_x - 0.5) > 0.15 
+    
+    # 1. ΑΝ ΔΟΥΜΕ ΓΡΟΘΙΑ ΕΚΤΟΣ ΘΩΡΑΚΑ -> ΞΕΚΙΝΑΜΕ ΤΟ ΧΡΟΝΟΜΕΤΡΟ
+    if is_high and is_side and is_fist_base:
+        if pending_gesture is None:
+            pending_gesture = "checking"
+            gesture_start_time = time.time()
+        
+        # 2. ΕΧΟΥΝ ΠΕΡΑΣΕΙ 0.3 ΔΕΥΤΕΡΟΛΕΠΤΑ;
+        if pending_gesture == "checking" and (time.time() - gesture_start_time) > 0.3:
+            if index_up:
+                # Ο δείκτης σηκώθηκε! Είναι ΚΑΛΗΜΕΡΑ
+                active_now = "kalimera"
+                prediction_prob = 0.99
+            else:
+                # Ο δείκτης έμεινε κάτω! Είναι ΚΑΛΟ ΜΕΣΗΜΕΡΙ
+                active_now = "kalo_mesimeri"
+                prediction_prob = 0.99
+            
+            # Μηδενίζουμε για την επόμενη κίνηση
+            pending_gesture = None
+    else:
+        # Αν χαλάσει η γροθιά ή κατέβει το χέρι, ακυρώνουμε το χρονόμετρο
+        pending_gesture = None
 
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ & ΚΑΛΗΜΕΡΑ
+
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ
     if prediction_prob < CONFIDENCE_THRESHOLD:
-        if active_now in ["geia", "kalimera"] and prediction_prob >= 0.30:
-            pass
+        if active_now == "geia" and prediction_prob >= 0.30:
+            pass 
         else:
             active_now = 'noise'
 
