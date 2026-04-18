@@ -17,11 +17,11 @@ except FileNotFoundError:
     print("❌ Σφάλμα: Δεν βρέθηκε το sign_model.pkl!")
     model = None
 
-# --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ (ΠΙΟ ΓΡΗΓΟΡΟΣ ΚΑΙ ΧΑΛΑΡΟΣ) ---
+# --- 2. Ο ΔΙΚΟΣ ΣΟΥ ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
 current_candidate = None
 consecutive_frames = 0
-REQUIRED_FRAMES = 2          # ΑΛΛΑΓΗ 1: Μόνο 2 frames για αστραπιαία αναγνώριση
-CONFIDENCE_THRESHOLD = 0.40  # ΑΛΛΑΓΗ 2: Χαμηλώσαμε το γενικό όριο στο 40%
+REQUIRED_FRAMES = 2          # 2 frames για να είναι γρήγορο
+CONFIDENCE_THRESHOLD = 0.40  # Χαμηλό όριο για να "πιάνει" εύκολα
 last_spoken_word = None
 last_spoken_time = 0
 
@@ -52,24 +52,26 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # Η ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (Οριζόντιο χέρι)
+    # --- Η ΑΠΟΛΥΤΗ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ ---
     wrist = raw_landmarks[0]
     middle_tip = raw_landmarks[12]
     
+    # Μετράμε το πλάτος (dx) και το ύψος (dy) του χεριού
     dx = abs(middle_tip['x'] - wrist['x'])
     dy = abs(middle_tip['y'] - wrist['y'])
     
-    is_hand_horizontal = dx > dy and dx > 0.05
-    is_hand_at_chin = wrist['y'] < 0.75 
+    is_hand_horizontal = dx > dy # Αν το πλάτος είναι μεγαλύτερο, το χέρι είναι ξαπλωμένο
+    is_in_chin_area = wrist['y'] > 0.45 # Το 0.0 είναι η κορυφή, το 1.0 ο πάτος. Άρα > 0.45 είναι από τη μέση και κάτω.
     
-    if active_now == "efharisto" and is_hand_at_chin and is_hand_horizontal:
+    # Αδιαφορούμε για το AI. Αν το χέρι είναι οριζόντιο στο ύψος του λαιμού/πηγουνιού, είναι Καλό Μεσημέρι.
+    if is_hand_horizontal and is_in_chin_area:
         active_now = "kalo_mesimeri"
-        prediction_prob = max(prediction_prob, 0.85)
+        prediction_prob = 0.99
 
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ: Ακόμα πιο εύκολο για "Γεια" και "Καλημέρα"
+    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ & ΚΑΛΗΜΕΡΑ (Συγχωρεί λάθη)
     if prediction_prob < CONFIDENCE_THRESHOLD:
         if active_now in ["geia", "kalimera"] and prediction_prob >= 0.30:
-            pass # Το αφήνουμε να περάσει με μόλις 30% σιγουριά
+            pass
         else:
             active_now = 'noise'
 
