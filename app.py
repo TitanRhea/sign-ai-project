@@ -25,10 +25,8 @@ CONFIDENCE_THRESHOLD = 0.40
 last_spoken_word = None
 last_spoken_time = 0
 
-# Μεταβλητές Μηχανής Καταστάσεων
 pending_gesture = None
 gesture_start_time = 0
-locked_word = None
 
 @app.route('/')
 def index():
@@ -37,7 +35,7 @@ def index():
 @socketio.on('process_landmarks')
 def handle_landmarks(data):
     global current_candidate, consecutive_frames, last_spoken_word, last_spoken_time
-    global pending_gesture, gesture_start_time, locked_word
+    global pending_gesture, gesture_start_time
     
     if model is None: return
     
@@ -59,51 +57,59 @@ def handle_landmarks(data):
     prediction_prob = probabilities[best_class_index]
 
     # =========================================================
-    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΟΛΓΑΣ: ΘΕΣΗ ΣΤΗΝ ΟΘΟΝΗ ΚΑΙ ΔΕΙΚΤΗΣ ---
+    # --- Η ΤΕΛΕΙΑ ΛΟΓΙΚΗ ΤΗΣ ΟΛΓΑΣ ---
     # =========================================================
     wrist_x = raw_landmarks[0]['x']
     wrist_y = raw_landmarks[0]['y']
     
-    # Θέση: Είναι ψηλά; Είναι στο πλάι (μακριά από το 0.5 του κέντρου);
-    is_high = wrist_y < 0.80
+    index_up = raw_landmarks[8]['y'] < (raw_landmarks[5]['y'] - 0.04)
+    middle_down = raw_landmarks[12]['y'] > raw_landmarks[10]['y']
+    ring_down = raw_landmarks[16]['y'] > raw_landmarks[14]['y']
+    pinky_down = raw_landmarks[20]['y'] > raw_landmarks[18]['y']
+    
+    is_fist_base = middle_down and ring_down and pinky_down
+    is_high = wrist_y < 0.80 
     is_side = abs(wrist_x - 0.5) > 0.15 
     
-    # Δείκτης: Η άκρη του (8) είναι αισθητά πιο ψηλά από τη βάση του (5);
-    is_index_up = raw_landmarks[8]['y'] < (raw_landmarks[5]['y'] - 0.04)
-
-    # Παίρνουμε τον έλεγχο ΑΝ το AI βγάλει λέξη που συγχέεται
     if active_now in ["efharisto", "kalimera", "kalo_mesimeri"]:
-        if is_high and is_side:
-            # Είναι στο πλάι! Άρα είναι Καλημέρα ή Καλό Μεσημέρι. Ξεκινάμε το χρονόμετρο.
-            if pending_gesture is None:
-                pending_gesture = "waiting"
-                gesture_start_time = time.time()
-                active_now = "noise" # Φίμωση AI
-            elif pending_gesture == "waiting":
-                if (time.time() - gesture_start_time) < 0.4:
-                    active_now = "noise" # Παραμένει φιμωμένο για 400ms
-                else:
-                    # Τέλος χρόνου! Αποφασίζουμε και κλειδώνουμε.
-                    pending_gesture = "locked"
-                    locked_word = "kalimera" if is_index_up else "kalo_mesimeri"
-                    active_now = locked_word
-                    prediction_prob = 0.99
-            elif pending_gesture == "locked":
-                # Αν ήταν κλειδωμένο στο Καλό Μεσημέρι αλλά σηκωθεί ο δείκτης, το κάνουμε Καλημέρα
-                if locked_word == "kalo_mesimeri" and is_index_up:
-                    locked_word = "kalimera"
-                active_now = locked_word
-                prediction_prob = 0.99
-        else:
-            # Είναι στο Κέντρο (Στέρνο)! Άρα είναι 100% Ευχαριστώ.
-            pending_gesture = None
-            locked_word = None
+        if not is_side:
+            # Κέντρο = Ευχαριστώ
             active_now = "efharisto"
             prediction_prob = 0.99
-    else:
-        # Καθαρισμός καταστάσεων αν πέσουμε σε άλλη λέξη
-        pending_gesture = None
-        locked_word = None
+            pending_gesture = None
+        else:
+            # Στο πλάι (άρα Καλημέρα ή Καλό μεσημέρι)
+            if is_high and is_fist_base:
+                if pending_gesture is None:
+                    pending_gesture = "checking"
+                    gesture_start_time = time.time()
+            
+            if pending_gesture == "checking":
+                if index_up:
+                    # Σήκωσε δείκτη! -> Καλημέρα
+                    active_now = "kalimera"
+                    prediction_prob = 0.99
+                    pending_gesture = None
+                elif not is_high or not is_side:
+                    # Το χέρι χάθηκε προς τα κάτω ή έφυγε, χωρίς να δούμε δείκτη! -> Καλό Μεσημέρι
+                    if "kalo_mesimeri" != last_spoken_word or (time.time() - last_spoken_time > 2.0):
+                        socketio.emit('new_sign', {'word': "kalo_mesimeri"})
+                        last_spoken_word = "kalo_mesimeri"
+                        last_spoken_time = time.time()
+                    
+                    pending_gesture = None
+                    current_candidate = None
+                    consecutive_frames = 0
+                    return # Τερματισμός, το στείλαμε κατευθείαν στην οθόνη!
+                else:
+                    # Σιγή ασυρμάτου, περιμένουμε την επόμενη κίνηση
+                    active_now = "noise"
+                    prediction_prob = 0.0
+                    
+                    if (time.time() - gesture_start_time) > 1.5:
+                        pending_gesture = None
+            else:
+                active_now = "noise"
 
     # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ (Παραμένει ίδιος)
     if active_now not in ["efharisto", "kalimera", "kalo_mesimeri"]:
