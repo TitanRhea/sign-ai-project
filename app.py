@@ -52,23 +52,19 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # --- Η ΔΙΚΗ ΣΟΥ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (ΟΛΗ Η ΠΑΛΑΜΗ ΚΑΘΕΤΗ) ---
-    wrist_y = raw_landmarks[0]['y']
-    index_tip_y = raw_landmarks[8]['y']      # Δείκτης
-    middle_tip_y = raw_landmarks[12]['y']    # Μέσος
-    ring_tip_y = raw_landmarks[16]['y']      # Παράμεσος
-    pinky_tip_y = raw_landmarks[20]['y']     # Μικρό δαχτυλάκι
+    # --- Η ΝΕΑ ΔΙΚΛΕΙΔΑ ΓΙΑ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ (Βασισμένη στη φωτογραφία σου) ---
+    wrist = raw_landmarks[0]
+    middle_tip = raw_landmarks[12]
     
-    # Ελέγχουμε ότι ΟΛΑ τα δάχτυλα της παλάμης είναι προς τα πάνω
-    is_hand_vertical = (
-        index_tip_y < wrist_y - 0.05 and
-        middle_tip_y < wrist_y - 0.05 and
-        ring_tip_y < wrist_y - 0.05 and
-        pinky_tip_y < wrist_y - 0.05
-    )
-    is_hand_at_chin = wrist_y < 0.75
+    # Υπολογίζουμε την απόσταση του δαχτύλου από τον καρπό
+    dx = abs(middle_tip['x'] - wrist['x']) # Οριζόντια απόσταση
+    dy = abs(middle_tip['y'] - wrist['y']) # Κάθετη απόσταση
     
-    if active_now == "efharisto" and is_hand_at_chin and is_hand_vertical:
+    # Το χέρι θεωρείται "οριζόντιο" στο πλάι, αν η απόσταση X είναι μεγαλύτερη από την Y
+    is_hand_horizontal = dx > dy and dx > 0.05
+    is_hand_at_chin = wrist['y'] < 0.75 
+    
+    if active_now == "efharisto" and is_hand_at_chin and is_hand_horizontal:
         active_now = "kalo_mesimeri"
         prediction_prob = max(prediction_prob, 0.85)
 
