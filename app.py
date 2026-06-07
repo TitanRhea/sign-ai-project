@@ -90,7 +90,9 @@ def handle_landmarks(data):
     # Έλεγχος αν είμαστε ακόμα μέσα στο χρόνο της "μνήμης" (2 δευτερόλεπτα)
     has_side_memory = (time.time() - side_memory_time) < 2.0
 
-    if has_side_memory and is_center and is_chin_level and is_horizontal:
+    # Χαλαρώνουμε τις απαιτήσεις: Αφαιρούμε το is_horizontal 
+    # ή το κάνουμε πιο ελαστικό για να πιάνει το "Καλό μεσημέρι"
+    if has_side_memory and is_center and is_chin_level: 
         active_now = "kalo_mesimeri"
         prediction_prob = 0.99
         # Μην μηδενίζεις αμέσως το side_memory_time εδώ για να προλάβει ο σταθεροποιητής να το "πιάσει"
