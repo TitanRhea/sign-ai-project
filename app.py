@@ -24,8 +24,6 @@ REQUIRED_FRAMES = 2
 CONFIDENCE_THRESHOLD = 0.40  
 last_spoken_word = None
 last_spoken_time = 0
-
-# ΜΕΤΑΒΛΗΤΕΣ ΓΙΑ ΤΗ ΔΙΑΔΡΟΜΗ (ΠΙΟ ΑΝΘΕΚΤΙΚΕΣ)
 side_memory_time = 0 
 
 @app.route('/')
@@ -42,70 +40,46 @@ def handle_landmarks(data):
     raw_landmarks = data.get('landmarks')
     if not raw_landmarks or len(raw_landmarks) != 21: return
     
-    # Μετατροπή Συντεταγμένων
     row = []
     base_x = raw_landmarks[0]['x']
     base_y = raw_landmarks[0]['y']
     for lm in raw_landmarks: row.append(lm['x'] - base_x)
     for lm in raw_landmarks: row.append(lm['y'] - base_y)
 
-    # Πρόβλεψη από το AI
     probabilities = model.predict_proba([row])[0]
     best_class_index = np.argmax(probabilities)
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # --- ΓΕΩΜΕΤΡΙΚΟΣ ΕΛΕΓΧΟΣ ---
     wrist_x = raw_landmarks[0]['x']
     wrist_y = raw_landmarks[0]['y']
     middle_tip = raw_landmarks[12]
     
-    # Αυστηρός έλεγχος δείκτη
     is_index_up = raw_landmarks[8]['y'] < (raw_landmarks[12]['y'] - 0.08)
-    
-    # Όρια θέσης
     is_side = abs(wrist_x - 0.5) > 0.16 
     is_center = abs(wrist_x - 0.5) < 0.20
     is_high = wrist_y < 0.85
-    is_chin_level = 0.35 < wrist_y < 0.80 # Πιο ευρύ όριο για το πηγούνι
-    
-    # Οριζόντια παλάμη
-    dx = abs(middle_tip['x'] - raw_landmarks[0]['x'])
-    dy = abs(middle_tip['y'] - raw_landmarks[0]['y'])
-    is_horizontal = dx > (dy * 0.8) # Πιο ελαστικό όριο για την κλίση
+    is_chin_level = 0.35 < wrist_y < 0.80 
 
-    # --- Η ΛΟΓΙΚΗ ΤΗΣ ΔΙΑΔΡΟΜΗΣ (STICKY MEMORY) ---
-    
-    # Αν το χέρι πάει στο πλάι, ο Εγκέφαλος το "σημειώνει" για τα επόμενα 2 δευτερόλεπτα
     if is_high and is_side:
         side_memory_time = time.time()
-        
         if is_index_up:
             active_now = "kalimera"
             prediction_prob = 0.99
-            side_memory_time = 0 # Καθαρισμός μετά την Καλημέρα
+            side_memory_time = 0 
         else:
             active_now = "noise"
             
-    # Έλεγχος αν είμαστε ακόμα μέσα στο χρόνο της "μνήμης" (2 δευτερόλεπτα)
     has_side_memory = (time.time() - side_memory_time) < 2.0
-
-    # Χαλαρώνουμε τις απαιτήσεις: Αφαιρούμε το is_horizontal 
-    # ή το κάνουμε πιο ελαστικό για να πιάνει το "Καλό μεσημέρι"
     if has_side_memory and is_center and is_chin_level: 
         active_now = "kalo_mesimeri"
         prediction_prob = 0.99
-        # Μην μηδενίζεις αμέσως το side_memory_time εδώ για να προλάβει ο σταθεροποιητής να το "πιάσει"
 
-    # ΕΙΔΙΚΟΣ ΚΑΝΟΝΑΣ ΓΙΑ ΓΕΙΑ (Κλειδωμένος)
     if active_now not in ["efharisto", "kalimera", "kalo_mesimeri"]:
         if prediction_prob < CONFIDENCE_THRESHOLD:
-            if active_now == "geia" and prediction_prob >= 0.30:
-                pass 
-            else:
-                active_now = 'noise'
+            if active_now == "geia" and prediction_prob >= 0.30: pass 
+            else: active_now = 'noise'
 
-    # --- Ο ΣΤΑΘΕΡΟΠΟΙΗΤΗΣ ---
     if active_now:
         if active_now == current_candidate:
             consecutive_frames += 1
@@ -114,12 +88,14 @@ def handle_landmarks(data):
             consecutive_frames = 1
             
         if consecutive_frames >= REQUIRED_FRAMES and current_candidate not in ['background', 'noise']:
-            if current_candidate != last_spoken_word or (time.time() - last_spoken_time > 2.0):
+            if current_candidate != last_spoken_word or (time.time() - last_spoken_time > 1.0):
                 socketio.emit('new_sign', {'word': current_candidate})
                 last_spoken_word = current_candidate
                 last_spoken_time = time.time()
+                # ΑΜΕΣΗ ΑΠΕΛΕΥΘΕΡΩΣΗ
                 consecutive_frames = 0
-                side_memory_time = 0 # Καθαρισμός μνήμης αφού ειπωθεί η λέξη
+                current_candidate = None 
+                side_memory_time = 0
     else:
         consecutive_frames = 0
         current_candidate = None
