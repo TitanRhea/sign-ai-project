@@ -174,18 +174,17 @@
                 audio.play().catch(e => console.log("Πρόβλημα με την αναπαραγωγή ήχου:", e));
                 
                 audio.onended = function() {
-                    // Σχεδόν ακαριαίο ξεκλείδωμα (50ms) μόλις τελειώσει ο ήχος
+                    // Διατήρηση ακαριαίας απελευθέρωσης (50ms) για γρήγορο καθαρισμό της οθόνης
                     setTimeout(() => {
                         is_speaking = false;
                         document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
                     }, 50); 
                 };
             } else {
-                // Αστραπιαία επαναφορά (100ms) αν δεν βρεθεί ήχος
                 setTimeout(() => {
                     is_speaking = false;
                     document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                }, 100);
+                }, 300);
             }
         }
 
@@ -206,8 +205,8 @@
         hands.onResults((results) => {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0 && !is_speaking) {
                 const now = Date.now();
-                // Μειώθηκε στα 100ms για ταχύτερη αποστολή και άμεση εναλλαγή
-                if (now - lastEmitTime > 100) { 
+                // Επαναφορά στα 150ms για να "κλειδώνει" τέλεια η μνήμη διαδρομής του "Καλό μεσημέρι"
+                if (now - lastEmitTime > 150) { 
                     const landmarks = results.multiHandLandmarks[0].map(lm => ({ x: lm.x, y: lm.y, z: lm.z }));
                     socket.emit('process_landmarks', { landmarks: landmarks });
                     lastEmitTime = now;
