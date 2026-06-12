@@ -51,17 +51,14 @@
             background: black;
             position: relative;
         }
-        #input_video { 
+        
+        /* Κρύβουμε το αρχικό βίντεο και δείχνουμε το canvas που κάνει το AI blur */
+        #input_video { display: none; }
+        #output_canvas {
             width: 100%; 
             height: auto; 
             transform: scaleX(-1); 
             display: block; 
-            transition: filter 0.3s ease; /* Ομαλό εφέ για το blur */
-        }
-
-        /* Κλάση CSS για το θόλωμα του φόντου */
-        .video-blurred {
-            filter: scaleX(-1) blur(12px) !important;
         }
 
         #ui-container { 
@@ -136,6 +133,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -150,6 +148,7 @@
     
     <div id="video-container">
         <video id="input_video" autoplay playsinline></video>
+        <canvas id="output_canvas" width="640" height="480"></canvas>
     </div>
     
     <div id="ui-container">
@@ -167,7 +166,6 @@
     </div>
 
     <script>
-        // 1. ΣΥΝΔΕΣΗ ΜΕ ΤΟ RENDER
         const socket = io("https://sign-ai-server.onrender.com");
         
         socket.on('connect', () => {
@@ -192,7 +190,8 @@
         };
 
         let is_speaking = false;
-        let is_sign_active = true; // Μεταβλητή ελέγχου για την ενεργή νοηματοδότηση
+        let is_sign_active = true; 
+        let is_blur_active = false; // Έλεγχος για το έξυπνο φόντο
 
         socket.on('new_sign', (data) => {
             if (is_speaking || !is_sign_active) return;
@@ -232,11 +231,45 @@
             }
         }
 
-        // 2. MEDIAPIPE ΚΑΜΕΡΑ
+        // 2. ΡΥΘΜΙΣΗ MEDIAPIPE SELFIE SEGMENTATION (ΓΙΑ ΤΟ BACKGROUND BLUR)
         const videoElement = document.getElementById('input_video');
-        const hands = new Hands({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }});
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        const selfieSegmentation = new SelfieSegmentation({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`
+        });
+
+        selfieSegmentation.setOptions({ modelSelection: 1 });
+
+        selfieSegmentation.onResults((results) => {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Σχεδιάζουμε τη μάσκα του σώματος
+            canvasCtx.drawImage(results.segmentationMask, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (is_blur_active) {
+                // 1. Κρατάμε μόνο το background και το θολώνουμε
+                canvasCtx.globalCompositeOperation = 'source-out';
+                canvasCtx.filter = 'blur(15px)'; // Έντονο θόλωμα στο δωμάτιο
+                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+                
+                // 2. Σχεδιάζουμε εσένα από πάνω πεντακάθαρη
+                canvasCtx.globalCompositeOperation = 'destination-over';
+                canvasCtx.filter = 'none';
+                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            } else {
+                // Αν το κουμπί είναι κλειστό, δείχνουμε την κανονική εικόνα χωρίς φίλτρα
+                canvasCtx.globalCompositeOperation = 'source-over';
+                canvasCtx.filter = 'none';
+                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            }
+            canvasCtx.restore();
+        });
+
+        // 3. MEDIAPIPE HANDS ΚΑΜΕΡΑ
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
         
         hands.setOptions({
             maxNumHands: 1,
@@ -247,7 +280,6 @@
 
         let lastEmitTime = 0;
         hands.onResults((results) => {
-            // ΠΡΟΣΘΗΚΗ ΕΛΕΓΧΟΥ: Αν η νοηματοδότηση είναι ανενεργή, δεν στέλνει τίποτα στον server
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0 && !is_speaking && is_sign_active) {
                 const now = Date.now();
                 if (now - lastEmitTime > 150) { 
@@ -258,15 +290,19 @@
             }
         });
 
+        // Η κάμερα τροφοδοτεί ταυτόχρονα και τα δύο μοντέλα AI
         const camera_mp = new Camera(videoElement, {
-            onFrame: async () => { await hands.send({image: videoElement}); },
+            onFrame: async () => { 
+                await selfieSegmentation.send({image: videoElement});
+                await hands.send({image: videoElement}); 
+            },
             width: 640,
             height: 480
         });
         
         camera_mp.start();
 
-        // 3. ΔΙΑΧΕΙΡΙΣΗ ΚΟΥΜΠΙΩΝ (LISTENERS)
+        // 4. ΔΙΑΧΕΙΡΙΣΗ ΚΟΥΜΠΙΩΝ
         const toggleSignBtn = document.getElementById('toggle-sign-btn');
         const blurBtn = document.getElementById('blur-btn');
 
@@ -284,8 +320,8 @@
         };
 
         blurBtn.onclick = () => {
-            videoElement.classList.toggle('video-blurred');
-            if (videoElement.classList.contains('video-blurred')) {
+            is_blur_active = !is_blur_active;
+            if (is_blur_active) {
                 blurBtn.innerText = "🎬 Θόλωμα Φόντου: ON";
                 blurBtn.classList.add('active');
             } else {
