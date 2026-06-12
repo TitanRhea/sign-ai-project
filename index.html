@@ -73,7 +73,6 @@
             min-width: 300px;
         }
 
-        /* Το νέο μενού επιλογής φωνής */
         #voice-select {
             font-size: 16px; 
             padding: 10px 20px; 
@@ -136,7 +135,6 @@
             document.getElementById("connection-status").className = "online";
         });
 
-        // Μετάφραση για τον Υπότιτλο (Για να γράφει ωραία Ελληνικά)
         const translations = {
             'efharisto': 'Ευχαριστώ',
             'kalimera': 'Καλημέρα',
@@ -145,28 +143,12 @@
             'onoma': 'Ποιο είναι το όνομά σου;'
         };
 
-        // Τα ακριβή ονόματα των .wav αρχείων από το screenshot σου
         const audioFiles = {
-            'efharisto': { 
-                female: 'efharisto.female.wav', 
-                male: 'efharisto.male.wav' 
-            },
-            'kalimera': { 
-                female: 'kalimera.female.wav', 
-                male: 'kalimera.male.wav' 
-            },
-            'kalo_mesimeri': { 
-                female: 'kalo_mesimeri.female.wav', 
-                male: 'kalo_mesimeri.male.wav' 
-            },
-            'geia': { 
-                female: 'geia.female.wav', 
-                male: 'geia.male.wav' 
-            },
-            'onoma': { 
-                female: 'poio.einai.to.onoma.sou.female.wav', 
-                male: 'poio.einai.to.onoma.sou.male.wav' 
-            }
+            'efharisto': { female: 'efharisto.female.wav', male: 'efharisto.male.wav' },
+            'kalimera': { female: 'kalimera.female.wav', male: 'kalimera.male.wav' },
+            'kalo_mesimeri': { female: 'kalo_mesimeri.female.wav', male: 'kalo_mesimeri.male.wav' },
+            'geia': { female: 'geia.female.wav', male: 'geia.male.wav' },
+            'onoma': { female: 'poio.einai.to.onoma.sou.female.wav', male: 'poio.einai.to.onoma.sou.male.wav' }
         };
 
         let is_speaking = false;
@@ -177,20 +159,14 @@
             const raw_word = data.word;
             const greek_word = translations[raw_word] || raw_word;
 
-            // 1. Δείχνει τη λέξη στην οθόνη
             document.getElementById("subtitle").innerText = greek_word;
-            
-            // 2. Παίζει το σωστό αρχείο ήχου
             playCustomAudio(raw_word);
         });
 
         function playCustomAudio(wordCode) {
             is_speaking = true;
-            
-            // Διαβάζει τι έχει διαλέξει ο χρήστης από το μενού (female ή male)
             const selectedVoice = document.getElementById('voice-select').value;
             
-            // Ψάχνει το αρχείο στον κατάλογό μας
             if (audioFiles[wordCode] && audioFiles[wordCode][selectedVoice]) {
                 const fileName = audioFiles[wordCode][selectedVoice];
                 const audio = new Audio(fileName);
@@ -201,14 +177,13 @@
                     setTimeout(() => {
                         is_speaking = false;
                         document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                    }, 1000); // Παύση ενός δευτερολέπτου πριν πιάσει επόμενη κίνηση
+                    }, 300); // Πολύ γρήγορη απελευθέρωση για επόμενη κίνηση
                 };
             } else {
-                // Αν δεν βρει ήχο (π.χ. είναι κάποια άλλη λέξη), απλά περιμένει 2 δευτερόλεπτα
                 setTimeout(() => {
                     is_speaking = false;
                     document.getElementById("subtitle").innerText = "Περιμένω κίνηση...";
-                }, 2000);
+                }, 500);
             }
         }
 
@@ -227,9 +202,9 @@
 
         let lastEmitTime = 0;
         hands.onResults((results) => {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0 && !is_speaking) {
                 const now = Date.now();
-                if (now - lastEmitTime > 150 && !is_speaking) { 
+                if (now - lastEmitTime > 150) { 
                     const landmarks = results.multiHandLandmarks[0].map(lm => ({ x: lm.x, y: lm.y, z: lm.z }));
                     socket.emit('process_landmarks', { landmarks: landmarks });
                     lastEmitTime = now;
