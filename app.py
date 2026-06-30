@@ -40,6 +40,7 @@ def handle_landmarks(data):
     raw_landmarks = data.get('landmarks')
     if not raw_landmarks or len(raw_landmarks) != 21: return
     
+    # Μετατροπή Συντεταγμένων
     row = []
     base_x = raw_landmarks[0]['x']
     base_y = raw_landmarks[0]['y']
@@ -90,12 +91,21 @@ def handle_landmarks(data):
         if consecutive_frames >= REQUIRED_FRAMES and current_candidate not in ['background', 'noise']:
             if current_candidate != last_spoken_word or (time.time() - last_spoken_time > 1.0):
                 socketio.emit('new_sign', {'word': current_candidate})
+                
+                # Κρατάμε προσωρινά ποια λέξη ειπώθηκε
+                executed_word = current_candidate
+                
                 last_spoken_word = current_candidate
                 last_spoken_time = time.time()
-                # ΑΜΕΣΗ ΑΠΕΛΕΥΘΕΡΩΣΗ
+                
+                # ΑΜΕΣΗ ΑΠΕΛΕΥΘΕΡΩΣΗ ΓΙΑ ΟΛΕΣ ΤΙΣ ΛΕΞΕΙΣ ΕΚΤΟΣ ΑΠΟ ΤΟ ΚΑΛΟ ΜΕΣΗΜΕΡΙ
                 consecutive_frames = 0
-                current_candidate = None 
-                side_memory_time = 0
+                if executed_word != "kalo_mesimeri":
+                    current_candidate = None 
+                    side_memory_time = 0
+                else:
+                    # Για το καλό μεσημέρι, καθαρίζουμε μόνο τη μνήμη διαδρομής ώστε να μην ξαναειπωθεί αμέσως
+                    side_memory_time = 0
     else:
         consecutive_frames = 0
         current_candidate = None
