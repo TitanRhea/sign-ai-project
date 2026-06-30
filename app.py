@@ -40,7 +40,6 @@ def handle_landmarks(data):
     raw_landmarks = data.get('landmarks')
     if not raw_landmarks or len(raw_landmarks) != 21: return
     
-    # Μετατροπή Συντεταγμένων
     row = []
     base_x = raw_landmarks[0]['x']
     base_y = raw_landmarks[0]['y']
@@ -54,31 +53,32 @@ def handle_landmarks(data):
 
     wrist_x = raw_landmarks[0]['x']
     wrist_y = raw_landmarks[0]['y']
-    middle_tip = raw_landmarks[12]
     
+    # Γεωμετρικοί έλεγχοι
     is_index_up = raw_landmarks[8]['y'] < (raw_landmarks[12]['y'] - 0.08)
     is_side = abs(wrist_x - 0.5) > 0.16 
-    is_center = abs(wrist_x - 0.5) < 0.20
-    is_high = wrist_y < 0.85
-    # Πιο ευρύ όριο για το πηγούνι ώστε να αναγνωρίζεται η κίνηση με μεγαλύτερη ευκολία
     is_chin_level = 0.25 < wrist_y < 0.85 
 
-    # Logikή Διαδρομής
-    if is_high and is_side:
+    # --- ΝΕΑ ΛΟΓΙΚΗ ΔΙΑΚΡΙΣΗΣ ---
+    if is_side:
         side_memory_time = time.time()
+        # Αν το δάχτυλο είναι πάνω, είναι Καλημέρα
         if is_index_up:
             active_now = "kalimera"
             prediction_prob = 0.99
-            side_memory_time = 0 
         else:
-            active_now = "noise"
+            # Αν είναι στο πλάι χωρίς σηκωμένο δάχτυλο, προετοιμαζόμαστε για Καλο Μεσημερι
+            active_now = "noise" 
             
-    has_side_memory = (time.time() - side_memory_time) < 2.0
+    # Έλεγχος αν έχουμε "μνήμη" κίνησης από το πλάι
+    has_side_memory = (time.time() - side_memory_time) < 1.5
     
-    # Αναγνώριση "Καλό μεσημέρι" (πρέπει να έχει πάει στο πηγούνι - κέντρο)
-    if has_side_memory and is_center and is_chin_level: 
+    # Αν έχουμε αφήσει το πλάι και πήγαμε στο πηγούνι, είναι Καλό μεσημέρι
+    if has_side_memory and not is_side and is_chin_level:
         active_now = "kalo_mesimeri"
         prediction_prob = 0.99
+        # Μηδενίζουμε τη μνήμη για να μην επαναλαμβάνεται
+        side_memory_time = 0
 
     if active_now not in ["efharisto", "kalimera", "kalo_mesimeri"]:
         if prediction_prob < CONFIDENCE_THRESHOLD:
@@ -97,14 +97,9 @@ def handle_landmarks(data):
                 socketio.emit('new_sign', {'word': current_candidate})
                 last_spoken_word = current_candidate
                 last_spoken_time = time.time()
-                
-                # Ειδική διαχείριση απελευθέρωσης για το "καλό μεσημέρι"
-                if current_candidate != "kalo_mesimeri":
-                    consecutive_frames = 0
-                    current_candidate = None 
-                    side_memory_time = 0
-                else:
-                    consecutive_frames = 0
+                consecutive_frames = 0
+                current_candidate = None 
+                side_memory_time = 0
     else:
         consecutive_frames = 0
         current_candidate = None
