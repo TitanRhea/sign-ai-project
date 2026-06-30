@@ -40,6 +40,7 @@ def handle_landmarks(data):
     raw_landmarks = data.get('landmarks')
     if not raw_landmarks or len(raw_landmarks) != 21: return
     
+    # Μετατροπή Συντεταγμένων
     row = []
     base_x = raw_landmarks[0]['x']
     base_y = raw_landmarks[0]['y']
@@ -92,14 +93,10 @@ def handle_landmarks(data):
                 socketio.emit('new_sign', {'word': current_candidate})
                 last_spoken_word = current_candidate
                 last_spoken_time = time.time()
-                
                 # ΑΜΕΣΗ ΑΠΕΛΕΥΘΕΡΩΣΗ
-                if current_candidate != "kalo_mesimeri":
-                    consecutive_frames = 0
-                    current_candidate = None 
-                    side_memory_time = 0
-                else:
-                    consecutive_frames = 0
+                consecutive_frames = 0
+                current_candidate = None 
+                side_memory_time = 0
     else:
         consecutive_frames = 0
         current_candidate = None
