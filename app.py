@@ -40,7 +40,6 @@ def handle_landmarks(data):
     raw_landmarks = data.get('landmarks')
     if not raw_landmarks or len(raw_landmarks) != 21: return
     
-    # Μετατροπή Συντεταγμένων
     row = []
     base_x = raw_landmarks[0]['x']
     base_y = raw_landmarks[0]['y']
@@ -52,18 +51,15 @@ def handle_landmarks(data):
     active_now = model.classes_[best_class_index]
     prediction_prob = probabilities[best_class_index]
 
-    # Γεωμετρικοί έλεγχοι
     wrist_x = raw_landmarks[0]['x']
     wrist_y = raw_landmarks[0]['y']
     
     is_index_up = raw_landmarks[8]['y'] < (raw_landmarks[12]['y'] - 0.08)
     is_side = abs(wrist_x - 0.5) > 0.16 
-    is_center = abs(wrist_x - 0.5) < 0.20
     is_high = wrist_y < 0.85
-    # Πηγούνι: Το y πρέπει να είναι σε συγκεκριμένο ύψος και το x στο κέντρο
-    is_chin_level = 0.35 < wrist_y < 0.80 
+    # Εδώ χαλαρώσαμε τα όρια: το χέρι μπορεί να είναι πιο ελεύθερα στο ύψος του πηγουνιού
+    is_chin_level = 0.25 < wrist_y < 0.85 
 
-    # Logikή Διαδρομής
     if is_high and is_side:
         side_memory_time = time.time()
         if is_index_up:
@@ -73,16 +69,13 @@ def handle_landmarks(data):
         else:
             active_now = "noise"
             
+    # Η "μνήμη" του πλάιου παραμένει ενεργή για 2 δευτερόλεπτα
     has_side_memory = (time.time() - side_memory_time) < 2.0
     
-    # ΕΔΩ ΕΙΝΑΙ Η ΔΙΟΡΘΩΣΗ: 
-    # Απαιτείται να έχει φύγει από το πλάι και να έχει πάει στο πηγούνι (κέντρο)
-    if has_side_memory and is_center and is_chin_level and not is_side: 
+    # Απλοποιημένος έλεγχος: Αν ήσουν στο πλάι πρόσφατα και τώρα είσαι στο ύψος του πηγουνιού
+    if has_side_memory and is_chin_level: 
         active_now = "kalo_mesimeri"
         prediction_prob = 0.99
-    elif is_side and has_side_memory and active_now == "kalo_mesimeri":
-        # Αν είναι ακόμα στο πλάι, αγνόησε το "καλό μεσημέρι"
-        active_now = "noise"
 
     if active_now not in ["efharisto", "kalimera", "kalo_mesimeri"]:
         if prediction_prob < CONFIDENCE_THRESHOLD:
@@ -101,7 +94,6 @@ def handle_landmarks(data):
                 socketio.emit('new_sign', {'word': current_candidate})
                 last_spoken_word = current_candidate
                 last_spoken_time = time.time()
-                # ΑΜΕΣΗ ΑΠΕΛΕΥΘΕΡΩΣΗ
                 consecutive_frames = 0
                 current_candidate = None 
                 side_memory_time = 0
